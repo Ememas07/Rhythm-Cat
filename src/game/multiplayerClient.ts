@@ -9,6 +9,33 @@ import type {
 import type { CatSkinId } from './skins';
 import type { JudgmentTier, LevelChart, PlayMode } from './types';
 
+function getConfiguredServerBase(): string {
+  const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
+  const raw = env?.VITE_MULTIPLAYER_SERVER_URL?.trim() ?? '';
+  return raw.replace(/\/+$/, '');
+}
+
+export function getMultiplayerWsUrl(overrideBase?: string): string {
+  const configured = (overrideBase ?? getConfiguredServerBase()).trim().replace(/\/+$/, '');
+  if (configured) {
+    const wsBase = configured
+      .replace(/^https:\/\//i, 'wss://')
+      .replace(/^http:\/\//i, 'ws://');
+    return wsBase.endsWith('/ws') ? wsBase : `${wsBase}/ws`;
+  }
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}/ws`;
+}
+
+export function getMultiplayerHttpBase(overrideBase?: string): string {
+  const configured = (overrideBase ?? getConfiguredServerBase()).trim().replace(/\/+$/, '');
+  if (!configured) return '';
+  return configured
+    .replace(/^wss:\/\//i, 'https://')
+    .replace(/^ws:\/\//i, 'http://')
+    .replace(/\/ws$/i, '');
+}
+
 export interface MultiplayerClientHandlers {
   onJoined: (role: PlayerRole, room: RoomSnapshot, chart: LevelChart | null) => void;
   onRoomState: (room: RoomSnapshot, chart?: LevelChart | null) => void;
@@ -42,8 +69,7 @@ export class MultiplayerClient {
     }
 
     this.connectPromise = new Promise<void>((resolve, reject) => {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const url = `${protocol}//${window.location.host}/ws`;
+      const url = getMultiplayerWsUrl();
       const socket = new WebSocket(url);
       this.ws = socket;
 
@@ -59,7 +85,12 @@ export class MultiplayerClient {
         if (!settled) {
           settled = true;
           this.connectPromise = null;
-          reject(new Error('Could not connect to multiplayer server.'));
+          const isStaticGithubPages =
+            !getConfiguredServerBase() && window.location.hostname.endsWith('github.io');
+          const msg = isStaticGithubPages
+            ? 'Could not connect: GitHub Pages only hosts static files and does not run server.ts. Deploy server.ts on Render/Railway/Fly.io and build with VITE_MULTIPLAYER_SERVER_URL, or open the Node/Cloud Run app URL.'
+            : 'Could not connect to multiplayer server.';
+          reject(new Error(msg));
         } else {
           this.handlers.onError('Multiplayer connection error.');
         }
@@ -236,7 +267,8 @@ export async function uploadRoomAudio(
   buffer: ArrayBuffer,
   mimeType: string,
 ): Promise<void> {
-  const res = await fetch(`/api/rooms/${encodeURIComponent(code)}/audio`, {
+  const base = getMultiplayerHttpBase();
+  const res = await fetch(`${base}/api/rooms/${encodeURIComponent(code)}/audio`, {
     method: 'POST',
     headers: {
       'Content-Type': mimeType || 'audio/mpeg',
@@ -256,7 +288,8 @@ export async function uploadRoomAudio(
 }
 
 export async function fetchRoomAudio(code: string): Promise<ArrayBuffer> {
-  const res = await fetch(`/api/rooms/${encodeURIComponent(code)}/audio`, {
+  const base = getMultiplayerHttpBase();
+  const res = await fetch(`${base}/api/rooms/${encodeURIComponent(code)}/audio`, {
     cache: 'no-store',
   });
   if (!res.ok) {

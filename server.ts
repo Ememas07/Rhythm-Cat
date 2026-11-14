@@ -72,6 +72,17 @@ function cleanupRoomIfEmpty(code: string): void {
 async function startServer() {
   const app = express();
 
+  app.use('/api', (_req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    if (_req.method === 'OPTIONS') {
+      res.sendStatus(204);
+      return;
+    }
+    next();
+  });
+
   // Room MP3 upload endpoint (raw binary stream up to 25MB)
   app.post(
     '/api/rooms/:code/audio',

@@ -11,6 +11,7 @@ import {
   resolveMatchWinner,
   setRoomPlayerReady,
 } from './multiplayerRoom.ts';
+import { getMultiplayerHttpBase, getMultiplayerWsUrl } from './multiplayerClient.ts';
 import type { LevelChart } from './types.ts';
 
 const SAMPLE_CHART: LevelChart = {
@@ -125,4 +126,16 @@ test('resolveMatchWinner compares survival first, then score, then accuracy', ()
   h.accuracyPct = 92;
   g.accuracyPct = 88;
   assert.equal(resolveMatchWinner(h, g), 'host');
+});
+
+test('getMultiplayerWsUrl and getMultiplayerHttpBase map external backend URLs cleanly', () => {
+  assert.equal(
+    getMultiplayerWsUrl('https://rhythm-cat-server.onrender.com/'),
+    'wss://rhythm-cat-server.onrender.com/ws',
+  );
+  assert.equal(
+    getMultiplayerHttpBase('wss://rhythm-cat-server.onrender.com/ws'),
+    'https://rhythm-cat-server.onrender.com',
+  );
+  assert.equal(getMultiplayerHttpBase(''), '');
 });
