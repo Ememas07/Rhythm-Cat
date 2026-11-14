@@ -1,0 +1,8 @@
+{
+  "name": "Sausage Cat Beat",
+  "description": "A rhythm-driven Flappy Bird arcade game featuring a stretchy sausage-shaped cat and automatic level generation from any imported MP3 song.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
