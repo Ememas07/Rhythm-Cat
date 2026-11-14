@@ -28,6 +28,7 @@ import { buildSynthTrackAnalysis, BUILTIN_TRACKS } from './game/tracks';
 import type {
   AudioAnalysisResult,
   BossId,
+  DifficultyLevel,
   GameMode,
   GameState,
   HudSnapshot,
@@ -58,6 +59,10 @@ const INITIAL_HUD: HudSnapshot = {
   lives: 3,
   maxLives: 3,
   infiniteLives: false,
+  hitsTaken: 0,
+  scoreCounted: true,
+  difficulty: 'normal',
+  autoMode: false,
   accuracyPct: 100,
   songProgress: 0,
   lastJudgment: null,
@@ -94,6 +99,8 @@ export default function App() {
   const [gameState, setGameState] = useState<GameState>('title');
   const [gameMode, setGameMode] = useState<GameMode>('arcade');
   const [playMode, setPlayMode] = useState<PlayMode>('lives');
+  const [difficulty, setDifficulty] = useState<DifficultyLevel>('normal');
+  const [autoMode, setAutoMode] = useState<boolean>(false);
   const [bossId, setBossId] = useState<BossId>('metronome');
   const [selectedTrackId, setSelectedTrackId] = useState<string>(BUILTIN_TRACKS[0].id);
 
@@ -173,6 +180,8 @@ export default function App() {
     activeAnalysis,
     gameMode,
     playMode,
+    difficulty,
+    autoMode,
     bossId,
     progress,
     importedTrack,
@@ -182,6 +191,8 @@ export default function App() {
     activeAnalysis,
     gameMode,
     playMode,
+    difficulty,
+    autoMode,
     bossId,
     progress,
     importedTrack,
@@ -415,6 +426,11 @@ export default function App() {
         }
 
         const cfg = latestConfigRef.current;
+        if (!stats.scoreCounted) {
+          setNewlyUnlockedSkins([]);
+          return;
+        }
+
         const { allUnlocked, newlyUnlocked } = evaluateSkinUnlocks(
           cfg.progress.unlockedSkins,
           stats,
@@ -457,6 +473,8 @@ export default function App() {
         analysis: firstAnalysis,
         gameMode: 'arcade',
         playMode: 'lives',
+        difficulty: 'normal',
+        autoMode: false,
         bossId: 'metronome',
         skinId: latestConfigRef.current.progress.selectedSkin,
         bestScore: latestConfigRef.current.progress.bestScore,
@@ -492,13 +510,15 @@ export default function App() {
       analysis: activeAnalysis,
       gameMode,
       playMode,
+      difficulty,
+      autoMode,
       bossId,
       skinId: progress.selectedSkin,
       bestScore: progress.bestScore,
     });
     engine.startGame();
     canvasRef.current?.focus();
-  }, [activeAnalysis, activeTrack, bossId, gameMode, playMode, progress.bestScore, progress.selectedSkin]);
+  }, [activeAnalysis, activeTrack, autoMode, bossId, difficulty, gameMode, playMode, progress.bestScore, progress.selectedSkin]);
 
   const handleToggleMute = useCallback(() => {
     if (!audioRef.current) return;
@@ -551,6 +571,7 @@ export default function App() {
 
       const chart: LevelChart = generateLevelFromAnalysis(analysis, {
         gameMode: 'arcade',
+        difficulty: latestConfigRef.current.difficulty,
         seed: track.id.length * 97 + Math.round(track.bpm),
       });
       const meta = buildTrackMeta(track, false);
@@ -666,6 +687,7 @@ export default function App() {
       const client = ensureMpClient();
       const chart = generateLevelFromAnalysis(activeAnalysis, {
         gameMode: 'arcade',
+        difficulty,
         seed: activeTrack.id.length * 97 + Math.round(activeTrack.bpm),
       });
       await client.createRoom({
@@ -679,7 +701,7 @@ export default function App() {
       setMpBusy(false);
       setMpError(err instanceof Error ? err.message : 'Failed to create 1v1 room.');
     }
-  }, [activeAnalysis, activeTrack, ensureMpClient, playMode, playerName, progress.selectedSkin]);
+  }, [activeAnalysis, activeTrack, difficulty, ensureMpClient, playMode, playerName, progress.selectedSkin]);
 
   const handleJoinRoom = useCallback(
     async (code: string) => {
@@ -841,6 +863,10 @@ export default function App() {
           onSelectGameMode={setGameMode}
           playMode={playMode}
           onSelectPlayMode={handleSelectPlayMode}
+          difficulty={difficulty}
+          onSelectDifficulty={setDifficulty}
+          autoMode={autoMode}
+          onToggleAutoMode={() => setAutoMode((v) => !v)}
           bossId={bossId}
           onSelectBoss={setBossId}
           selectedSkin={progress.selectedSkin}

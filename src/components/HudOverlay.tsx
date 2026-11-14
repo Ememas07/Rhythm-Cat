@@ -53,9 +53,11 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             {/* 3-State Vitality Cat Hearts or Infinite Lives */}
             {hud.infiniteLives ? (
               <div
-                className="flex items-center gap-1.5 text-[#34D399] font-mono-num text-base font-bold"
+                className={`flex items-center gap-1.5 font-mono-num text-sm font-bold ${
+                  hud.hitsTaken > 3 ? 'text-[#FB7185]' : 'text-[#34D399]'
+                }`}
                 style={{ textShadow: '0 2px 4px rgba(0,0,0,0.65)' }}
-                aria-label="Infinite Lives"
+                aria-label={`Infinite Lives (${hud.hitsTaken} hits)`}
               >
                 <svg
                   viewBox="0 0 24 24"
@@ -64,12 +66,14 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 >
                   <path
                     d="M12 20.5s-7.5-4.7-9.2-9.2C1.7 8.3 3.7 5 6.8 5c1.8 0 3.3.9 4.2 2.2L12 8.6l1-1.4C13.9 5.9 15.4 5 17.2 5c3.1 0 5.1 3.3 4 6.3-1.7 4.5-9.2 9.2-9.2 9.2z"
-                    fill="#34D399"
+                    fill={hud.hitsTaken > 3 ? '#FB7185' : '#34D399'}
                     stroke="#0F1326"
                     strokeWidth="2"
                   />
                 </svg>
-                <span>∞</span>
+                <span>
+                  ∞ · {hud.hitsTaken}/3{hud.hitsTaken > 3 ? ' (Unranked)' : ''}
+                </span>
               </div>
             ) : (
               <div className="flex items-center gap-1" aria-label={`Lives ${hud.lives} of ${hud.maxLives}`}>
@@ -93,6 +97,15 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 })}
               </div>
             )}
+
+            {hud.autoMode && (
+              <span
+                className="text-xs font-extrabold uppercase tracking-wider text-[#38BDF8]"
+                style={{ textShadow: '0 2px 4px rgba(0,0,0,0.85)' }}
+              >
+                AUTO
+              </span>
+            )}
           </div>
 
           <div
@@ -105,6 +118,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             <span aria-hidden="true">·</span>
             <span>{hud.accuracyPct}% Acc</span>
             <span aria-hidden="true">·</span>
+            <span className="hidden sm:inline capitalize text-[#F7F2E7]/75">
+              {hud.difficulty}
+            </span>
+            <span aria-hidden="true" className="hidden sm:inline">·</span>
             <span className="hidden sm:inline text-[#F7F2E7]/70">
               {hud.trackTitle} ({hud.bpm} BPM)
             </span>

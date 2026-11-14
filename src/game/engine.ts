@@ -1,5 +1,10 @@
 import { RhythmAudioEngine } from './audioEngine';
 import {
+  createAutoPilotState,
+  decideAutoPlayJump,
+  type AutoPilotState,
+} from './autoPlayer';
+import {
   createBossState,
   spawnPlayerRhythmBolt,
   stepBossBattle,
@@ -16,7 +21,13 @@ import {
   WORLD_HEIGHT,
 } from './physics';
 import { GameRenderer, type OpponentVisualState } from './renderer';
-import { computeAccuracyPercent, evaluateBeatJump, getNearestBeatDeltaSec } from './rhythmJudge';
+import {
+  computeAccuracyPercent,
+  evaluateBeatJump,
+  getNearestBeatDeltaSec,
+  INFINITE_HIT_SCORE_PENALTY,
+  shouldCountRunScore,
+} from './rhythmJudge';
 import { getSkinById, type CatSkinId } from './skins';
 import { buildSynthTrackAnalysis } from './tracks';
 import type { RoomPlayerState } from './multiplayerTypes';
@@ -25,6 +36,7 @@ import type {
   BossId,
   BossRuntimeState,
   CatPhysicsState,
+  DifficultyLevel,
   GameMode,
   GameState,
   HudSnapshot,
@@ -71,6 +83,8 @@ export class SausageCatEngine {
   private state: GameState = 'title';
   private gameMode: GameMode = 'arcade';
   private playMode: PlayMode = 'lives';
+  private difficulty: DifficultyLevel = 'normal';
+  private autoMode = false;
   private bossId: BossId = 'metronome';
   private skinId: CatSkinId = 'marmalade';
   private bestScore = 0;
@@ -83,6 +97,7 @@ export class SausageCatEngine {
   private catX = 240;
   private cat: CatPhysicsState;
   private boss: BossRuntimeState | null = null;
+  private autoPilot: AutoPilotState = createAutoPilotState();
 
   private hitstopTimer = 0;
   private shakeTrauma = 0;
@@ -103,6 +118,7 @@ export class SausageCatEngine {
   private gatesCleared = 0;
   private lives = 3;
   private maxLives = 3;
+  private hitsTaken = 0;
   private lastJudgmentSeq = 0;
   private lastJudgment: HudSnapshot['lastJudgment'] = null;
   private hasJumpedYet = false;
@@ -179,6 +195,8 @@ export class SausageCatEngine {
     analysis: AudioAnalysisResult;
     gameMode: GameMode;
     playMode: PlayMode;
+    difficulty: DifficultyLevel;
+    autoMode: boolean;
     bossId: BossId;
     skinId: CatSkinId;
     bestScore: number;
@@ -187,6 +205,8 @@ export class SausageCatEngine {
     this.analysis = opts.analysis;
     this.gameMode = opts.gameMode;
     this.playMode = opts.playMode;
+    this.difficulty = opts.difficulty;
+    this.autoMode = opts.autoMode;
     this.bossId = opts.bossId;
     this.skinId = opts.skinId;
     this.bestScore = opts.bestScore;
@@ -239,6 +259,7 @@ export class SausageCatEngine {
     this.opponentSpine = [];
     this.chart = generateLevelFromAnalysis(this.analysis, {
       gameMode: this.gameMode,
+      difficulty: this.difficulty,
       seed: this.track.id.length * 97 + Math.round(this.track.bpm),
     });
     this.resetRunAndBegin();
@@ -248,6 +269,7 @@ export class SausageCatEngine {
     track: TrackConfig;
     chart: LevelChart;
     playMode: PlayMode;
+    difficulty?: DifficultyLevel;
     skinId: CatSkinId;
     bestScore: number;
     opponent: RoomPlayerState | null;
@@ -255,6 +277,8 @@ export class SausageCatEngine {
     this.track = opts.track;
     this.gameMode = 'arcade';
     this.playMode = opts.playMode;
+    this.difficulty = opts.difficulty ?? 'normal';
+    this.autoMode = false;
     this.skinId = opts.skinId;
     this.bestScore = opts.bestScore;
     this.multiplayerActive = true;
@@ -276,10 +300,12 @@ export class SausageCatEngine {
 
   private resetRunAndBegin(): void {
     this.cat = createInitialCatState(this.catX);
+    this.autoPilot = createAutoPilotState();
     this.renderer.clearEffects();
 
     this.maxLives = this.playMode === 'sudden-death' ? 1 : 3;
     this.lives = this.maxLives;
+    this.hitsTaken = 0;
     this.score = 0;
     this.combo = 0;
     this.maxCombo = 0;
@@ -300,7 +326,7 @@ export class SausageCatEngine {
 
     this.boss =
       !this.multiplayerActive && this.gameMode === 'boss'
-        ? createBossState(this.bossId, this.worldWidth, this.chart.durationSec)
+        ? createBossState(this.bossId, this.worldWidth, this.chart.durationSec, this.difficulty)
         : null;
 
     this.state = 'playing';
@@ -339,7 +365,7 @@ export class SausageCatEngine {
   }
 
   public triggerJump(): void {
-    if (this.state !== 'playing' || this.pendingGameOverStats) return;
+    if (this.state !== 'playing' || this.pendingGameOverStats || this.autoMode) return;
     this.jumpBufferTimer = 0.12;
   }
 
@@ -349,8 +375,9 @@ export class SausageCatEngine {
       songTime,
       this.chart.bpm,
       this.chart.firstBeatSec,
-      this.chart.beatTimes ? this.combo : this.combo,
+      this.combo,
       this.chart.beatTimes,
+      this.difficulty,
     );
 
     this.combo = result.nextCombo;
@@ -375,7 +402,7 @@ export class SausageCatEngine {
 
       // In Boss Battle mode, jumping off-beat after intro grace triggers a boss attack!
       if (this.boss && !this.boss.isDefeated && songTime >= 2.2) {
-        const atk = triggerBossAttack(this.boss, this.cat.y, 'offbeat');
+        const atk = triggerBossAttack(this.boss, this.cat.y, 'offbeat', this.difficulty);
         if (atk) {
           this.audio.playBossTelegraphSfx();
         }
@@ -458,8 +485,22 @@ export class SausageCatEngine {
 
     const songTime = this.audio.getSongTime();
 
-    // Process buffered jump input
-    if (this.jumpBufferTimer > 0) {
+    // Auto Mode AI pilot or buffered player jump input
+    if (this.autoMode) {
+      if (
+        decideAutoPlayJump(
+          this.autoPilot,
+          this.cat,
+          this.catX,
+          songTime,
+          this.chart,
+          this.boss,
+          this.difficulty,
+        )
+      ) {
+        this.executeJump(songTime);
+      }
+    } else if (this.jumpBufferTimer > 0) {
       this.jumpBufferTimer = 0;
       this.executeJump(songTime);
     }
@@ -499,7 +540,7 @@ export class SausageCatEngine {
         note.missed = true;
         // Missing a golden note in Boss Battle triggers a boss attack occasionally
         if (this.boss && !this.boss.isDefeated && !note.isHazard && note.beatIndex % 3 === 1) {
-          const atk = triggerBossAttack(this.boss, this.cat.y, 'missed-note');
+          const atk = triggerBossAttack(this.boss, this.cat.y, 'missed-note', this.difficulty);
           if (atk) this.audio.playBossTelegraphSfx();
         }
       }
@@ -515,7 +556,7 @@ export class SausageCatEngine {
           this.renderer.spawnBurst(nx, note.y, '#EF4444', 14, 220, 5);
           this.renderer.spawnPop(nx, note.y - 20, 'WRONG NOTE!', '#FCA5A5', 1.0);
           if (this.boss && !this.boss.isDefeated) {
-            const atk = triggerBossAttack(this.boss, this.cat.y, 'wrong-note');
+            const atk = triggerBossAttack(this.boss, this.cat.y, 'wrong-note', this.difficulty);
             if (atk) this.audio.playBossTelegraphSfx();
           }
           this.handlePlayerHurt('Sour Note!');
@@ -645,6 +686,7 @@ export class SausageCatEngine {
   }
 
   private handlePlayerHurt(label: string): void {
+    this.hitsTaken++;
     const { nextLives, isGameOver } = resolveLivesAfterHit(this.lives, this.playMode);
     this.lives = nextLives;
     this.combo = 0;
@@ -655,7 +697,20 @@ export class SausageCatEngine {
     this.shakeTrauma = 0.72;
     this.audio.playDamageSfx();
     this.renderer.spawnBurst(this.catX, this.cat.y, '#FB7185', 16, 250, 5.5);
-    this.renderer.spawnPop(this.catX, this.cat.y - 36, label, '#FCA5A5', 1.1);
+
+    if (this.playMode === 'infinite') {
+      this.score = Math.max(0, this.score - INFINITE_HIT_SCORE_PENALTY);
+      const hitTag = this.hitsTaken <= 3 ? `${this.hitsTaken}/3 hits` : `${this.hitsTaken} hits (Unranked)`;
+      this.renderer.spawnPop(
+        this.catX,
+        this.cat.y - 36,
+        `-${INFINITE_HIT_SCORE_PENALTY} (${hitTag})`,
+        '#FCA5A5',
+        0.95,
+      );
+    } else {
+      this.renderer.spawnPop(this.catX, this.cat.y - 36, label, '#FCA5A5', 1.1);
+    }
     this.pushHud(true);
 
     if (isGameOver) {
@@ -675,7 +730,9 @@ export class SausageCatEngine {
       this.goodCount,
       this.offbeatCount,
     );
-    const bestScore = Math.max(this.bestScore, this.score);
+    const scoreCounted = shouldCountRunScore(this.playMode, this.hitsTaken, this.autoMode);
+    const effectiveScore = scoreCounted ? Math.round(this.score) : 0;
+    const bestScore = scoreCounted ? Math.max(this.bestScore, effectiveScore) : this.bestScore;
     return {
       score: Math.round(this.score),
       bestScore: Math.round(bestScore),
@@ -691,6 +748,10 @@ export class SausageCatEngine {
       lives: this.lives,
       maxLives: this.maxLives,
       infiniteLives: this.playMode === 'infinite',
+      hitsTaken: this.hitsTaken,
+      scoreCounted,
+      difficulty: this.difficulty,
+      autoMode: this.autoMode,
       accuracyPct,
       victory,
       victoryReason,
@@ -715,15 +776,20 @@ export class SausageCatEngine {
       this.goodCount,
       this.offbeatCount,
     );
+    const scoreCounted = shouldCountRunScore(this.playMode, this.hitsTaken, this.autoMode);
 
     this.callbacks.onHudUpdate({
       score: Math.round(this.score),
-      bestScore: Math.round(Math.max(this.bestScore, this.score)),
+      bestScore: Math.round(scoreCounted ? Math.max(this.bestScore, this.score) : this.bestScore),
       combo: this.combo,
       multiplier: this.multiplier,
       lives: this.lives,
       maxLives: this.maxLives,
       infiniteLives: this.playMode === 'infinite',
+      hitsTaken: this.hitsTaken,
+      scoreCounted,
+      difficulty: this.difficulty,
+      autoMode: this.autoMode,
       accuracyPct,
       songProgress: Math.min(1, songTime / Math.max(1, this.chart.durationSec)),
       lastJudgment: this.lastJudgment,

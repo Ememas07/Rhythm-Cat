@@ -1,7 +1,34 @@
-import type { JudgmentResult, JudgmentTier } from './types';
+import type { DifficultyLevel, JudgmentResult, JudgmentTier, PlayMode } from './types';
 
 export const PERFECT_WINDOW_SEC = 0.095;
 export const GOOD_WINDOW_SEC = 0.175;
+export const INFINITE_HIT_SCORE_PENALTY = 200;
+export const INFINITE_MAX_RANKED_HITS = 3;
+
+export function getBeatTimingWindows(difficulty: DifficultyLevel = 'normal'): {
+  perfectSec: number;
+  goodSec: number;
+} {
+  if (difficulty === 'easy') {
+    return { perfectSec: 0.12, goodSec: 0.21 };
+  }
+  if (difficulty === 'hard') {
+    return { perfectSec: 0.075, goodSec: 0.14 };
+  }
+  return { perfectSec: PERFECT_WINDOW_SEC, goodSec: GOOD_WINDOW_SEC };
+}
+
+export function shouldCountRunScore(
+  playMode: PlayMode,
+  hitsTaken: number,
+  autoMode: boolean,
+): boolean {
+  if (autoMode) return false;
+  if (playMode === 'infinite' && hitsTaken > INFINITE_MAX_RANKED_HITS) {
+    return false;
+  }
+  return true;
+}
 
 /**
  * Finds the signed distance in seconds from `songTime` to the nearest beat
@@ -58,22 +85,24 @@ export function evaluateBeatJump(
   firstBeatSec: number,
   currentCombo: number,
   beatTimes?: number[],
+  difficulty: DifficultyLevel = 'normal',
 ): JudgmentResult {
   const { deltaSec } = getNearestBeatDeltaSec(songTime, bpm, firstBeatSec, beatTimes);
   const absDelta = Math.abs(deltaSec);
   const deltaMs = Math.round(deltaSec * 1000);
+  const { perfectSec, goodSec } = getBeatTimingWindows(difficulty);
 
   let tier: JudgmentTier;
   let basePoints: number;
   let nextCombo: number;
   let boostScale: number;
 
-  if (absDelta <= PERFECT_WINDOW_SEC) {
+  if (absDelta <= perfectSec) {
     tier = 'PERFECT';
     nextCombo = currentCombo + 1;
     basePoints = 100;
     boostScale = 1.06;
-  } else if (absDelta <= GOOD_WINDOW_SEC) {
+  } else if (absDelta <= goodSec) {
     tier = 'GOOD';
     nextCombo = currentCombo + 1;
     basePoints = 50;

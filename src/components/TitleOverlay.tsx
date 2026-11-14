@@ -1,8 +1,17 @@
 import React, { useRef, useState } from 'react';
-import { Lock, Music, Play, Shield, Sparkles, Swords, Upload, Users, Check } from 'lucide-react';
+import { Bot, Lock, Music, Play, Shield, Sparkles, Swords, Upload, Users, Check } from 'lucide-react';
 import { BOSS_ROSTER } from '../game/bosses';
 import { CAT_SKINS, type CatSkinId } from '../game/skins';
-import type { BossId, GameMode, Mp3TrackConfig, PlayMode, TrackConfig } from '../game/types';
+import type {
+  BossId,
+  DifficultyLevel,
+  GameMode,
+  Mp3TrackConfig,
+  PlayMode,
+  TrackConfig,
+} from '../game/types';
+
+const DIFFICULTIES: DifficultyLevel[] = ['easy', 'normal', 'hard'];
 
 interface TitleOverlayProps {
   tracks: TrackConfig[];
@@ -16,6 +25,10 @@ interface TitleOverlayProps {
   onSelectGameMode: (mode: GameMode) => void;
   playMode: PlayMode;
   onSelectPlayMode: (mode: PlayMode) => void;
+  difficulty: DifficultyLevel;
+  onSelectDifficulty: (difficulty: DifficultyLevel) => void;
+  autoMode: boolean;
+  onToggleAutoMode: () => void;
   bossId: BossId;
   onSelectBoss: (id: BossId) => void;
   selectedSkin: CatSkinId;
@@ -38,6 +51,10 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
   onSelectGameMode,
   playMode,
   onSelectPlayMode,
+  difficulty,
+  onSelectDifficulty,
+  autoMode,
+  onToggleAutoMode,
   bossId,
   onSelectBoss,
   selectedSkin,
@@ -61,7 +78,7 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-20 flex flex-col justify-between p-5 sm:p-8 pointer-events-none">
+    <div className="fixed inset-0 z-20 flex flex-col justify-between p-3.5 sm:p-8 pointer-events-none">
       {/* Top-Left Bespoke Inline SVG Title Emblem over Calm Negative Space */}
       <div className="flex items-start justify-between gap-4">
         <div className="pointer-events-auto">
@@ -137,7 +154,7 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
       </div>
 
       {/* Main Control Console anchored on the right half so the floating Sausage Cat on left stays visible */}
-      <div className="w-full max-w-[500px] lg:ml-auto lg:mr-6 mt-auto mb-2 lg:my-auto bg-[#171C34]/95 border border-[#343E6B] rounded-2xl p-4 sm:p-6 shadow-2xl pointer-events-auto max-h-[62vh] lg:max-h-[76vh] overflow-y-auto">
+      <div className="w-full max-w-[500px] lg:ml-auto lg:mr-6 mt-auto mb-1.5 lg:my-auto bg-[#171C34]/95 border border-[#343E6B] rounded-2xl p-3.5 sm:p-6 shadow-2xl pointer-events-auto max-h-[70vh] lg:max-h-[76vh] overflow-y-auto">
         {showWardrobe ? (
           <div>
             <div className="flex items-center justify-between gap-4 mb-4">
@@ -203,7 +220,7 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
             </div>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-2.5 sm:space-y-4">
             {/* Mode Switcher + Lives Selector */}
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div
@@ -278,6 +295,76 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
               </div>
             </div>
 
+            {/* Difficulty Slider + Auto Mode Toggle */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 p-2.5 rounded-xl bg-[#101428] border border-[#28315A]">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <label
+                    htmlFor="difficulty-slider"
+                    className="text-[11px] font-semibold text-[#F7F2E7]/75"
+                  >
+                    Difficulty
+                  </label>
+                  <span
+                    className={`text-[11px] font-bold uppercase tracking-wide ${
+                      difficulty === 'easy'
+                        ? 'text-[#34D399]'
+                        : difficulty === 'hard'
+                          ? 'text-[#FB7185]'
+                          : 'text-[#FFB830]'
+                    }`}
+                  >
+                    {difficulty}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="difficulty-slider"
+                    type="range"
+                    min={0}
+                    max={2}
+                    step={1}
+                    value={DIFFICULTIES.indexOf(difficulty)}
+                    onChange={(e) => {
+                      const idx = Number(e.target.value);
+                      onSelectDifficulty(DIFFICULTIES[idx] ?? 'normal');
+                    }}
+                    aria-label="Difficulty"
+                    className="flex-1 accent-[#FFB830] cursor-pointer h-1.5"
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[10px] text-[#F7F2E7]/55 mt-0.5">
+                  {DIFFICULTIES.map((lvl) => (
+                    <button
+                      key={lvl}
+                      type="button"
+                      onClick={() => onSelectDifficulty(lvl)}
+                      className={`capitalize cursor-pointer hover:text-white ${
+                        difficulty === lvl ? 'text-[#F7F2E7] font-bold' : ''
+                      }`}
+                    >
+                      {lvl}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                data-testid="toggle-auto-btn"
+                aria-pressed={autoMode}
+                onClick={onToggleAutoMode}
+                className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  autoMode
+                    ? 'bg-[#1B3A4B] border-[#38BDF8] text-[#38BDF8]'
+                    : 'bg-[#181F3D] border-[#2C3560] text-[#F7F2E7]/75 hover:border-[#4B5894]'
+                }`}
+              >
+                <Bot className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>{autoMode ? 'Auto: ON' : 'Auto: OFF'}</span>
+              </button>
+            </div>
+
             {/* Track List */}
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -320,7 +407,7 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
                       key={t.id}
                       type="button"
                       onClick={() => onSelectTrack(t.id)}
-                      className={`w-full flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl border text-left transition-colors cursor-pointer ${
+                      className={`w-full flex items-center justify-between gap-3 px-3 sm:px-3.5 py-2 sm:py-2.5 rounded-xl border text-left transition-colors cursor-pointer ${
                         active
                           ? 'bg-[#252E58] border-[#FFB830]'
                           : 'bg-[#1D2444]/85 border-[#2C3560] hover:border-[#4B5894]'

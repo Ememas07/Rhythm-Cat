@@ -19,6 +19,10 @@ function makeStats(overrides: Partial<RunStats> = {}): RunStats {
     lives: 3,
     maxLives: 3,
     infiniteLives: false,
+    hitsTaken: 0,
+    scoreCounted: true,
+    difficulty: 'normal',
+    autoMode: false,
     accuracyPct: 70,
     victory: false,
     victoryReason: 'defeat',
@@ -54,6 +58,25 @@ test('evaluateSkinUnlocks grants score, combo, accuracy, and boss skins accurate
     'maestro',
   );
   assert.ok(res2.newlyUnlocked.includes('cosmic'));
+});
+
+test('evaluateSkinUnlocks grants no skins when scoreCounted is false', () => {
+  const res = evaluateSkinUnlocks(
+    ['marmalade'],
+    makeStats({
+      score: 9999,
+      maxCombo: 40,
+      victory: true,
+      accuracyPct: 100,
+      victoryReason: 'boss-defeated',
+      scoreCounted: false,
+      autoMode: true,
+    }),
+    'zoomies-3am',
+    'maestro',
+  );
+  assert.deepEqual(res.newlyUnlocked, []);
+  assert.deepEqual(res.allUnlocked, ['marmalade']);
 });
 
 test('getSkinById returns fallback starter skin for unknown ids', () => {

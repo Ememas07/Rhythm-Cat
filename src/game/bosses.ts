@@ -6,6 +6,7 @@ import type {
   BossProjectile,
   BossRuntimeState,
   CatPhysicsState,
+  DifficultyLevel,
   JudgmentTier,
 } from './types';
 
@@ -46,11 +47,13 @@ export function createBossState(
   bossId: BossId,
   worldWidth: number,
   songDurationSec: number,
+  difficulty: DifficultyLevel = 'normal',
 ): BossRuntimeState {
   const def = BOSS_ROSTER[bossId];
-  // Scale boss HP gently with song length so 45s tracks and 2m+ MP3s both feel balanced
+  // Scale boss HP gently with song length and difficulty
   const durationScale = Math.max(0.85, Math.min(2.2, songDurationSec / 52));
-  const maxHp = Math.round((def.baseHp * durationScale) / 10) * 10;
+  const diffHpMult = difficulty === 'easy' ? 0.8 : difficulty === 'hard' ? 1.18 : 1.0;
+  const maxHp = Math.round((def.baseHp * durationScale * diffHpMult) / 10) * 10;
 
   return {
     id: bossId,
@@ -111,11 +114,16 @@ export function triggerBossAttack(
   boss: BossRuntimeState,
   catY: number,
   reason: 'offbeat' | 'missed-note' | 'wrong-note',
+  difficulty: DifficultyLevel = 'normal',
 ): BossAttackKind | null {
   if (boss.isDefeated || boss.attackCooldown > 0) return null;
 
+  const speedScale = difficulty === 'easy' ? 0.78 : difficulty === 'hard' ? 1.18 : 1.0;
+  const cooldownBase = difficulty === 'easy' ? 1.45 : difficulty === 'hard' ? 0.8 : 1.05;
+  const prevLen = boss.projectiles.length;
+
   // Cap active boss projectiles so screen stays readable & fair
-  if (boss.projectiles.length >= 6) return null;
+  if (prevLen >= (difficulty === 'easy' ? 4 : 6)) return null;
 
   const clampedCatY = Math.max(PLAYFIELD_TOP + 65, Math.min(PLAYFIELD_BOTTOM - 65, catY));
   let kind: BossAttackKind;
@@ -218,7 +226,12 @@ export function triggerBossAttack(
     }
   }
 
-  boss.attackCooldown = 1.05;
+  for (let i = prevLen; i < boss.projectiles.length; i++) {
+    boss.projectiles[i].vx *= speedScale;
+    boss.projectiles[i].vy *= speedScale;
+  }
+
+  boss.attackCooldown = cooldownBase;
   boss.attackLabelTimer = 1.4;
   return kind;
 }

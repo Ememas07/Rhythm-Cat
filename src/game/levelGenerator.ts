@@ -1,7 +1,8 @@
-import { PLAYFIELD_BOTTOM } from './physics';
+import { GRAVITY, JUMP_VELOCITY, PLAYFIELD_BOTTOM } from './physics';
 import type {
   AudioAnalysisResult,
   CollectibleNote,
+  DifficultyLevel,
   GameMode,
   LevelChart,
   ObstacleGate,
@@ -11,16 +12,107 @@ export interface LevelGenOptions {
   leadInSec?: number;
   seed?: number;
   gameMode?: GameMode;
+  difficulty?: DifficultyLevel;
+}
+
+export interface DifficultyProfile {
+  scrollScale: number;
+  gapBase: number;
+  gapEnergyDrop: number;
+  minGap: number;
+  burstMaxLen: number;
+  burstMinEnergy: number;
+  burstMinDensity: number;
+  energySwingScale: number;
+  climbSafety: number;
+  dropSafety: number;
+  hazardEveryBeats: number;
+}
+
+export function getDifficultyProfile(difficulty: DifficultyLevel = 'normal'): DifficultyProfile {
+  if (difficulty === 'easy') {
+    return {
+      scrollScale: 0.85,
+      gapBase: 258,
+      gapEnergyDrop: 22,
+      minGap: 224,
+      burstMaxLen: 2,
+      burstMinEnergy: 0.8,
+      burstMinDensity: 1.9,
+      energySwingScale: 0.62,
+      climbSafety: 0.58,
+      dropSafety: 0.62,
+      hazardEveryBeats: 8,
+    };
+  }
+  if (difficulty === 'hard') {
+    return {
+      scrollScale: 1.1,
+      gapBase: 214,
+      gapEnergyDrop: 22,
+      minGap: 190,
+      burstMaxLen: 4,
+      burstMinEnergy: 0.68,
+      burstMinDensity: 1.5,
+      energySwingScale: 0.94,
+      climbSafety: 0.76,
+      dropSafety: 0.8,
+      hazardEveryBeats: 4,
+    };
+  }
+  return {
+    scrollScale: 1.0,
+    gapBase: 228,
+    gapEnergyDrop: 22,
+    minGap: 200,
+    burstMaxLen: 3,
+    burstMinEnergy: 0.74,
+    burstMinDensity: 1.7,
+    energySwingScale: 0.84,
+    climbSafety: 0.72,
+    dropSafety: 0.76,
+    hazardEveryBeats: 6,
+  };
 }
 
 // Unconstrained high-sky ceiling allowing multi-beat ascending runs far above the rooftops
-const HIGH_SKY_MIN_Y = -560;
-const LOW_ROOF_MAX_Y = PLAYFIELD_BOTTOM - 148; // ~488
+const HIGH_SKY_MIN_Y = -540;
+const LOW_ROOF_MAX_Y = PLAYFIELD_BOTTOM - 152; // ~484
+
+/**
+ * Computes physics-verified climb/drop bounds over time `dt` using the cat's
+ * gravity, jump impulse, and beat period so no gate sequence is ever unreachable.
+ */
+function computeReachableDeltaBounds(
+  dt: number,
+  beatPeriod: number,
+  profile: DifficultyProfile,
+): { maxClimb: number; maxDrop: number } {
+  const safeDt = Math.max(0.32, dt);
+  // How many clean on-beat jumps fit comfortably inside `dt`
+  const numBeats = Math.max(1, Math.floor(safeDt / beatPeriod + 0.15));
+  const subDt = safeDt / numBeats;
+
+  // Net upward gain of one PERFECT jump over `subDt`: -(v0 * t + 0.5 * g * t^2)
+  const jumpGainPerBeat = Math.max(
+    18,
+    -(JUMP_VELOCITY * 1.04 * subDt + 0.5 * GRAVITY * subDt * subDt),
+  );
+  // Cap per-gate climb so trailing sausage tail never clips pipe collars
+  const rawMaxClimb = numBeats * jumpGainPerBeat * profile.climbSafety;
+  const maxClimb = Math.min(rawMaxClimb, 114 * safeDt);
+
+  // Comfortable drop accounting for jump-arc recovery and MAX_FALL_SPEED=330
+  const rawMaxDrop = Math.min(165 * safeDt, 0.36 * GRAVITY * safeDt * safeDt + 45 * safeDt);
+  const maxDrop = rawMaxDrop * profile.dropSafety;
+
+  return { maxClimb, maxDrop };
+}
 
 /**
  * Generates a rhythm-locked Flappy level chart from an audio analysis result.
- * Follows the song's energy contour and onset density so quick consecutive beat phrases
- * climb cleanly upward through the expanded sky instead of forcing constant up-down bobbing.
+ * Pass 1 constructs physics-verified reachable gates;
+ * Pass 2 places collectible golden notes exclusively along safe, reachable air corridors.
  */
 export function generateLevelFromAnalysis(
   analysis: AudioAnalysisResult,
@@ -29,26 +121,26 @@ export function generateLevelFromAnalysis(
   const leadInSec = options.leadInSec ?? 2.6;
   const seed = options.seed ?? 1337;
   const gameMode = options.gameMode ?? 'arcade';
+  const difficulty = options.difficulty ?? 'normal';
+  const profile = getDifficultyProfile(difficulty);
 
   const bpm = Math.max(70, Math.min(180, analysis.bpm || 110));
   const beatPeriod = 60 / bpm;
 
-  // Scroll speed scales gently with BPM so beat spacing remains readable
-  const scrollSpeed = Math.round(235 + (bpm - 80) * 1.15);
+  // Scroll speed scales gently with BPM and difficulty so spacing stays readable
+  const baseScroll = 232 + (bpm - 80) * 1.08;
+  const scrollSpeed = Math.round(baseScroll * profile.scrollScale);
 
   const beatTimes =
     analysis.beatTimes.length > 0
       ? analysis.beatTimes
       : buildUniformBeats(analysis.firstBeatSec, analysis.durationSec, beatPeriod);
 
-  // Count how many audio onsets occur near each beat so dense musical phrases trigger quick beat runs
   const onsetDensityPerBeat = computeOnsetDensityPerBeat(
     beatTimes,
     analysis.onsetTimes,
     beatPeriod,
   );
-
-  // Smooth the local energy curve across 4-beat musical bars so altitude tracks song phrasing (verse vs chorus)
   const smoothedEnergy = smoothEnergyCurve(analysis.energyPerBeat, beatTimes.length);
 
   const gates: ObstacleGate[] = [];
@@ -60,11 +152,27 @@ export function generateLevelFromAnalysis(
   let noteId = 1;
   let quickBurstRemaining = 0;
 
-  // Stop spawning new obstacles within the final 1.6s of the song
   const endCutoff = Math.max(leadInSec + 1, analysis.durationSec - 1.6);
 
-  // Base gate cadence: normally every 2 beats, or 1-beat staircases during rapid onset bursts!
-  const defaultBeatStep = bpm >= 152 ? 3 : 2;
+  // Base gate cadence scaled by BPM & difficulty so fast MP3s stay readable and fair
+  const defaultBeatStep =
+    difficulty === 'easy'
+      ? bpm >= 115
+        ? 3
+        : 2
+      : difficulty === 'normal'
+        ? bpm >= 142
+          ? 3
+          : 2
+        : bpm >= 158
+          ? 3
+          : 2;
+
+  // Minimum time spacing between consecutive gates so the 100px-long cat always has room
+  const minGateSpacingSec = difficulty === 'easy' ? 0.56 : difficulty === 'normal' ? 0.44 : 0.36;
+
+  // --- PASS 1: Generate reachable rhythm-locked gates ---
+  const candidateNoteBeats: { time: number; beatIndex: number }[] = [];
 
   for (let b = 0; b < beatTimes.length; b++) {
     const t = beatTimes[b];
@@ -74,62 +182,58 @@ export function generateLevelFromAnalysis(
     const rawEnergy = analysis.energyPerBeat[b] ?? energy;
     const onsetDensity = onsetDensityPerBeat[b] ?? 1;
 
-    // Trigger a 4-beat rapid climbing phrase when onset density & energy spike (e.g. drum fill / drop)
     const canStartBurst =
       quickBurstRemaining === 0 &&
       gates.length >= 2 &&
       b % 4 === 0 &&
-      (onsetDensity >= 1.6 || rawEnergy >= 0.72);
+      t - prevGateTime >= minGateSpacingSec * 1.5 &&
+      (onsetDensity >= profile.burstMinDensity || rawEnergy >= profile.burstMinEnergy);
 
     if (canStartBurst) {
-      quickBurstRemaining = 4;
+      quickBurstRemaining = profile.burstMaxLen;
     }
 
     const isQuickBurstBeat = quickBurstRemaining > 0;
     const isRegularGateBeat = b % defaultBeatStep === 0;
 
-    // In calm low-energy verses, give extra breathing room between gates
+    // On Easy or calm low-energy verses, give extra breathing room between gates
     const skipForCalmVerse =
       !isQuickBurstBeat &&
       isRegularGateBeat &&
-      energy < 0.2 &&
+      (difficulty === 'easy' ? energy < 0.35 : energy < 0.22) &&
       (b / defaultBeatStep) % 2 === 1 &&
       gates.length > 1;
 
-    if ((isQuickBurstBeat || isRegularGateBeat) && !skipForCalmVerse) {
-      const dt = Math.max(0.28, t - prevGateTime);
+    const enoughTimeGap = t - prevGateTime >= minGateSpacingSec;
+
+    if ((isQuickBurstBeat || isRegularGateBeat) && !skipForCalmVerse && enoughTimeGap) {
+      const dt = Math.max(0.32, t - prevGateTime);
+      const { maxClimb, maxDrop } = computeReachableDeltaBounds(dt, beatPeriod, profile);
       let gapCenterY: number;
 
       if (isQuickBurstBeat) {
-        // 4-beat quick sequence: step steadily UPWARD on each beat so the player can tap 4 beats cleanly without falling!
-        const climbStep = Math.round(Math.min(72, Math.max(44, dt * 115)));
-        gapCenterY = Math.max(HIGH_SKY_MIN_Y, prevGapY - climbStep);
+        // Ascending staircase: step UP strictly within the physics-guaranteed climb per beat
+        const desiredStep = Math.min(maxClimb, Math.max(10, maxClimb * 0.86));
+        gapCenterY = Math.round(Math.max(HIGH_SKY_MIN_Y, prevGapY - desiredStep));
         quickBurstRemaining--;
       } else {
-        // Map smoothed song energy directly to vertical altitude:
-        // Low energy -> cozy rooftop level (~320..440)
-        // High energy -> soaring high sky (-360..140)
-        const baseAltitude = LOW_ROOF_MAX_Y - 70 - energy * 560;
-        const phraseWave = Math.sin(b * 0.42 + seed * 0.11) * 95;
-        const microVar = (pseudoRand(seed + b * 31) - 0.5) * 65;
+        const baseAltitude = LOW_ROOF_MAX_Y - 68 - energy * 510 * profile.energySwingScale;
+        const phraseWave = Math.sin(b * 0.4 + seed * 0.11) * 78 * profile.energySwingScale;
+        const microVar = (pseudoRand(seed + b * 31) - 0.5) * 48 * profile.energySwingScale;
         const desiredY = Math.max(
           HIGH_SKY_MIN_Y,
           Math.min(LOW_ROOF_MAX_Y, baseAltitude + phraseWave + microVar),
         );
 
-        // Reachability clamping proportional to elapsed time `dt` between gates
-        const maxClimb = 135 * dt;
-        const maxDrop = 235 * dt;
         const delta = Math.max(-maxClimb, Math.min(maxDrop, desiredY - prevGapY));
         gapCenterY = Math.round(
           Math.max(HIGH_SKY_MIN_Y, Math.min(LOW_ROOF_MAX_Y, prevGapY + delta)),
         );
       }
 
-      // Generous gap during fast bursts or low-energy sections; tighter only on sustained high-energy choruses
-      const gapHeight = isQuickBurstBeat
-        ? Math.round(218 - energy * 18)
-        : Math.round(216 - energy * 38);
+      const rawGap = profile.gapBase - energy * profile.gapEnergyDrop;
+      const burstBonus = isQuickBurstBeat ? 18 : 0;
+      const gapHeight = Math.round(Math.max(profile.minGap, rawGap + burstBonus));
 
       gates.push({
         id: gateId++,
@@ -137,7 +241,7 @@ export function generateLevelFromAnalysis(
         time: t,
         gapCenterY,
         gapHeight,
-        width: 74,
+        width: 70,
         passed: false,
         hit: false,
         accented: isQuickBurstBeat || rawEnergy >= 0.65 || b % 8 === 0,
@@ -147,68 +251,146 @@ export function generateLevelFromAnalysis(
       prevGapY = gapCenterY;
       prevGateTime = t;
     } else {
-      // Place collectible Beat Notes aligned with intermediate beats / detected onsets along the flight path
-      const noteY = Math.round(
-        Math.max(HIGH_SKY_MIN_Y + 40, Math.min(PLAYFIELD_BOTTOM - 70, prevGapY - 12)),
-      );
-      notes.push({
-        id: noteId++,
-        time: t,
-        y: noteY,
-        radius: 17,
-        collected: false,
-        missed: false,
-        isHazard: false,
-        beatIndex: b,
-      });
+      candidateNoteBeats.push({ time: t, beatIndex: b });
+    }
+  }
 
-      // In Boss Battle mode, periodically place a clearly marked discordant red "Wrong Note"
-      if (gameMode === 'boss' && b % 4 === 3) {
-        const hazardOffset = noteY > 180 ? -125 : 125;
-        const hazardY = Math.round(
-          Math.max(HIGH_SKY_MIN_Y + 35, Math.min(PLAYFIELD_BOTTOM - 62, noteY + hazardOffset)),
-        );
+  // --- PASS 2: Place collectible notes strictly in safe flight corridors ---
+  const gateHorizontalClearancePx = 98; // Half-gate (35px) + cat body clearance (63px)
+
+  const computeSafeCorridor = (t: number): { corridorY: number; safeMinY: number; safeMaxY: number } => {
+    if (gates.length === 0) {
+      return { corridorY: 310, safeMinY: 160, safeMaxY: PLAYFIELD_BOTTOM - 80 };
+    }
+
+    let prevIdx = -1;
+    for (let i = 0; i < gates.length; i++) {
+      if (gates[i].time <= t) prevIdx = i;
+      else break;
+    }
+
+    const gPrev = prevIdx >= 0 ? gates[prevIdx] : null;
+    const gNext = prevIdx + 1 < gates.length ? gates[prevIdx + 1] : null;
+
+    let corridorY: number;
+    let safeMinY = HIGH_SKY_MIN_Y + 55;
+    let safeMaxY = PLAYFIELD_BOTTOM - 76;
+
+    if (gPrev && gNext) {
+      const span = Math.max(0.01, gNext.time - gPrev.time);
+      const frac = Math.max(0, Math.min(1, (t - gPrev.time) / span));
+      corridorY = gPrev.gapCenterY + (gNext.gapCenterY - gPrev.gapCenterY) * frac;
+
+      // Near either gate, stay strictly inside the overlap of the safe gap window
+      const prevPad = gPrev.gapHeight / 2 - 42;
+      const nextPad = gNext.gapHeight / 2 - 42;
+      if (frac < 0.35) {
+        safeMinY = Math.max(safeMinY, gPrev.gapCenterY - prevPad);
+        safeMaxY = Math.min(safeMaxY, gPrev.gapCenterY + prevPad);
+      } else if (frac > 0.65) {
+        safeMinY = Math.max(safeMinY, gNext.gapCenterY - nextPad);
+        safeMaxY = Math.min(safeMaxY, gNext.gapCenterY + nextPad);
+      } else {
+        const minC = Math.min(gPrev.gapCenterY, gNext.gapCenterY) - 24;
+        const maxC = Math.max(gPrev.gapCenterY, gNext.gapCenterY) + 24;
+        safeMinY = Math.max(safeMinY, minC);
+        safeMaxY = Math.min(safeMaxY, maxC);
+      }
+    } else if (gNext) {
+      const frac = Math.max(0, Math.min(1, t / Math.max(0.5, gNext.time)));
+      corridorY = 310 + (gNext.gapCenterY - 310) * frac;
+      const nextPad = gNext.gapHeight / 2 - 42;
+      safeMinY = Math.max(safeMinY, Math.min(310, gNext.gapCenterY) - nextPad);
+      safeMaxY = Math.min(safeMaxY, Math.max(310, gNext.gapCenterY) + nextPad);
+    } else if (gPrev) {
+      corridorY = gPrev.gapCenterY;
+      const prevPad = gPrev.gapHeight / 2 - 42;
+      safeMinY = Math.max(safeMinY, gPrev.gapCenterY - prevPad);
+      safeMaxY = Math.min(safeMaxY, gPrev.gapCenterY + prevPad);
+    } else {
+      corridorY = 310;
+    }
+
+    if (safeMinY > safeMaxY) {
+      const mid = (safeMinY + safeMaxY) / 2;
+      safeMinY = mid - 12;
+      safeMaxY = mid + 12;
+    }
+
+    return {
+      corridorY: Math.max(safeMinY, Math.min(safeMaxY, corridorY)),
+      safeMinY,
+      safeMaxY,
+    };
+  };
+
+  const hasGateHorizontalClearance = (t: number): boolean => {
+    for (const g of gates) {
+      if (Math.abs(t - g.time) * scrollSpeed < gateHorizontalClearancePx) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  for (const cand of candidateNoteBeats) {
+    if (!hasGateHorizontalClearance(cand.time)) continue;
+
+    const { corridorY, safeMinY, safeMaxY } = computeSafeCorridor(cand.time);
+    const noteY = Math.round(Math.max(safeMinY, Math.min(safeMaxY, corridorY)));
+
+    notes.push({
+      id: noteId++,
+      time: cand.time,
+      y: noteY,
+      radius: 17,
+      collected: false,
+      missed: false,
+      isHazard: false,
+      beatIndex: cand.beatIndex,
+    });
+
+    // In Boss Battle mode, periodically place a clearly separated discordant red "Wrong Note"
+    if (gameMode === 'boss' && cand.beatIndex % profile.hazardEveryBeats === 3) {
+      const hazardOffset = noteY > 180 ? -128 : 128;
+      const hazardY = Math.round(
+        Math.max(HIGH_SKY_MIN_Y + 40, Math.min(PLAYFIELD_BOTTOM - 64, noteY + hazardOffset)),
+      );
+      if (Math.abs(hazardY - noteY) >= 105) {
         notes.push({
           id: noteId++,
-          time: t,
+          time: cand.time,
           y: hazardY,
           radius: 16,
           collected: false,
           missed: false,
           isHazard: true,
-          beatIndex: b,
+          beatIndex: cand.beatIndex,
         });
       }
     }
   }
 
-  // Also add extra onset-synced golden Beat Notes for imported MP3s when a strong onset sits between gates
+  // Extra onset-synced golden Beat Notes for imported MP3s strictly inside safe corridors
   if (analysis.onsetTimes.length > 0 && gates.length >= 2) {
-    let gIdx = 0;
     for (const onsetT of analysis.onsetTimes) {
-      if (onsetT < leadInSec + 0.2 || onsetT > endCutoff - 0.3) continue;
-      while (gIdx < gates.length - 1 && gates[gIdx + 1].time < onsetT) {
-        gIdx++;
-      }
-      const g0 = gates[gIdx];
-      const g1 = gates[Math.min(gates.length - 1, gIdx + 1)];
-      // Skip if onset is right inside a gate pillar or already has a note nearby
-      if (Math.abs(onsetT - g0.time) < 0.16 || Math.abs(onsetT - g1.time) < 0.16) continue;
-      const alreadyHasNote = notes.some((n) => Math.abs(n.time - onsetT) < 0.22);
+      if (onsetT < leadInSec + 0.25 || onsetT > endCutoff - 0.35) continue;
+      if (!hasGateHorizontalClearance(onsetT)) continue;
+      const alreadyHasNote = notes.some((n) => Math.abs(n.time - onsetT) < 0.24);
       if (alreadyHasNote) continue;
 
-      const span = Math.max(0.01, g1.time - g0.time);
-      const frac = Math.max(0, Math.min(1, (onsetT - g0.time) / span));
-      const interpY = Math.round(g0.gapCenterY + (g1.gapCenterY - g0.gapCenterY) * frac);
+      const { corridorY, safeMinY, safeMaxY } = computeSafeCorridor(onsetT);
+      const onsetNoteY = Math.round(Math.max(safeMinY, Math.min(safeMaxY, corridorY)));
+
       notes.push({
         id: noteId++,
         time: onsetT,
-        y: Math.max(HIGH_SKY_MIN_Y + 40, Math.min(PLAYFIELD_BOTTOM - 70, interpY)),
+        y: onsetNoteY,
         radius: 15,
         collected: false,
         missed: false,
         isHazard: false,
-        beatIndex: g0.beatIndex,
+        beatIndex: 0,
       });
     }
     notes.sort((a, b) => a.time - b.time);

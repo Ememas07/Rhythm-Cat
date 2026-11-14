@@ -17,9 +17,9 @@ export const GROUND_HEIGHT = 84;
 export const PLAYFIELD_TOP = -1400;
 export const PLAYFIELD_BOTTOM = WORLD_HEIGHT - GROUND_HEIGHT;
 
-export const GRAVITY = 1120;
-export const JUMP_VELOCITY = -410;
-export const MAX_FALL_SPEED = 600;
+export const GRAVITY = 1200;
+export const JUMP_VELOCITY = -386;
+export const MAX_FALL_SPEED = 330;
 export const SPINE_SEGMENTS = 6;
 export const SPINE_SEGMENT_STEP = 14;
 export const CAT_COLLISION_RADIUS = 16;

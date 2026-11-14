@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import {
   computeAccuracyPercent,
   evaluateBeatJump,
+  getBeatTimingWindows,
   getMultiplierForCombo,
   getNearestBeatDeltaSec,
+  shouldCountRunScore,
 } from './rhythmJudge';
 
 test('getNearestBeatDeltaSec computes signed delta to nearest beat on uniform grid', () => {
@@ -40,6 +42,31 @@ test('evaluateBeatJump awards PERFECT, GOOD, and OFFBEAT with combo progression'
   assert.equal(offbeat.nextCombo, 0);
   assert.equal(offbeat.multiplier, 1);
   assert.equal(offbeat.points, 0);
+});
+
+test('getBeatTimingWindows and evaluateBeatJump scale across easy, normal, hard', () => {
+  const easyWin = getBeatTimingWindows('easy');
+  const normalWin = getBeatTimingWindows('normal');
+  const hardWin = getBeatTimingWindows('hard');
+  assert.ok(easyWin.perfectSec > normalWin.perfectSec && normalWin.perfectSec > hardWin.perfectSec);
+  assert.ok(easyWin.goodSec > normalWin.goodSec && normalWin.goodSec > hardWin.goodSec);
+
+  // 110ms offset is PERFECT on Easy, GOOD on Normal, GOOD on Hard
+  assert.equal(evaluateBeatJump(0.61, 120, 0, 0, undefined, 'easy').tier, 'PERFECT');
+  assert.equal(evaluateBeatJump(0.61, 120, 0, 0, undefined, 'normal').tier, 'GOOD');
+  // 155ms offset is GOOD on Normal, OFFBEAT on Hard
+  assert.equal(evaluateBeatJump(0.655, 120, 0, 0, undefined, 'normal').tier, 'GOOD');
+  assert.equal(evaluateBeatJump(0.655, 120, 0, 0, undefined, 'hard').tier, 'OFFBEAT');
+});
+
+test('shouldCountRunScore enforces infinite hit limit and excludes Auto Mode', () => {
+  assert.equal(shouldCountRunScore('lives', 2, false), true);
+  assert.equal(shouldCountRunScore('sudden-death', 1, false), true);
+  assert.equal(shouldCountRunScore('infinite', 0, false), true);
+  assert.equal(shouldCountRunScore('infinite', 3, false), true);
+  assert.equal(shouldCountRunScore('infinite', 4, false), false);
+  assert.equal(shouldCountRunScore('lives', 0, true), false);
+  assert.equal(shouldCountRunScore('infinite', 0, true), false);
 });
 
 test('getMultiplierForCombo scales properly at thresholds', () => {

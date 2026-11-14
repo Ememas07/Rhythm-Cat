@@ -164,6 +164,13 @@ export function evaluateSkinUnlocks(
   const unlockedSet = new Set<CatSkinId>(currentUnlocked);
   unlockedSet.add('marmalade');
 
+  if (!stats.scoreCounted) {
+    return {
+      allUnlocked: Array.from(unlockedSet),
+      newlyUnlocked: [],
+    };
+  }
+
   const newlyUnlocked: CatSkinId[] = [];
   const tryUnlock = (id: CatSkinId, condition: boolean) => {
     if (condition && !unlockedSet.has(id)) {

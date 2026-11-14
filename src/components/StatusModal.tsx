@@ -270,14 +270,25 @@ export const StatusModal: React.FC<StatusModalProps> = ({
         ? 'Song Cleared!'
         : 'Wiped Out!';
 
+  const difficultyLabel =
+    stats.difficulty.charAt(0).toUpperCase() + stats.difficulty.slice(1);
+
   const subtext =
     stats.victoryReason === 'boss-defeated'
-      ? 'Purr-fect rhythm mastery!'
+      ? `Purr-fect rhythm mastery! · ${difficultyLabel}`
       : stats.victory
-        ? `${stats.trackTitle} · ${stats.bpm} BPM`
+        ? `${stats.trackTitle} · ${stats.bpm} BPM · ${difficultyLabel}`
         : stats.gameMode === 'boss' && stats.bossName
-          ? `${stats.bossName} had ${Math.round(stats.bossHpRemaining)} HP left`
-          : `Reached ${Math.round(stats.songProgress * 100)}% of ${stats.trackTitle}`;
+          ? `${stats.bossName} had ${Math.round(stats.bossHpRemaining)} HP left · ${difficultyLabel}`
+          : `Reached ${Math.round(stats.songProgress * 100)}% of ${stats.trackTitle} · ${difficultyLabel}`;
+
+  const unrankedReason = !stats.scoreCounted
+    ? stats.autoMode
+      ? 'Auto Mode Run — Score & skin unlocks were not saved.'
+      : stats.infiniteLives && stats.hitsTaken > 3
+        ? `Infinite Mode: ${stats.hitsTaken} hits taken (max 3 allowed) — Score not counted.`
+        : 'Score not counted for this run.'
+    : null;
 
   return (
     <div
@@ -327,13 +338,31 @@ export const StatusModal: React.FC<StatusModalProps> = ({
         </div>
 
         {/* Breakdown line */}
-        <div className="flex items-center justify-center gap-3 text-xs font-mono-num text-[#F7F2E7]/75 mb-4">
+        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs font-mono-num text-[#F7F2E7]/75 mb-4">
           <span>{stats.perfectCount} Perfect</span>
           <span aria-hidden="true">·</span>
           <span>{stats.goodCount} Good</span>
           <span aria-hidden="true">·</span>
           <span>{stats.offbeatCount} Offbeat</span>
+          {stats.infiniteLives && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className={stats.hitsTaken > 3 ? 'text-[#FB7185] font-semibold' : 'text-[#34D399]'}>
+                {stats.hitsTaken} {stats.hitsTaken === 1 ? 'Hit' : 'Hits'}
+              </span>
+            </>
+          )}
         </div>
+
+        {/* Unranked Notice (Auto Mode or Infinite > 3 hits) */}
+        {unrankedReason && (
+          <div
+            data-testid="unranked-notice"
+            className="mb-4 px-3 py-2.5 rounded-xl bg-[#2B1726] border border-[#FB7185]/45 text-xs text-[#FECDD3] text-center"
+          >
+            {unrankedReason}
+          </div>
+        )}
 
         {/* Newly Unlocked Cat Skins */}
         {newlyUnlockedSkins.length > 0 && (
