@@ -82,8 +82,16 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
       {/* Top-Left Bespoke Inline SVG Title Emblem over Calm Negative Space */}
       <div className="flex items-start justify-between gap-4">
         <div className="pointer-events-auto">
-          <svg
-            viewBox="0 0 360 92"
+          <a
+            href="/"
+            title="Return to Hub"
+            className="block group cursor-pointer"
+          >
+            <span className="inline-flex items-center gap-1.5 mb-2 text-xs font-bold text-[#FFB830] group-hover:text-[#F2994A] transition-colors">
+              <span aria-hidden="true">←</span> Return to Hub
+            </span>
+            <svg
+              viewBox="0 0 360 92"
             className="w-[260px] sm:w-[340px] h-auto drop-shadow-[0_4px_12px_rgba(0,0,0,0.45)]"
             role="img"
             aria-label="Sausage Cat Beat"

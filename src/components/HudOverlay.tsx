@@ -1,5 +1,5 @@
 import React from 'react';
-import { LogOut, Pause, RotateCcw, Volume2, VolumeX } from 'lucide-react';
+import { Home, LogOut, Pause, RotateCcw, Volume2, VolumeX } from 'lucide-react';
 import type { RoomPlayerState } from '../game/multiplayerTypes';
 import type { HudSnapshot } from '../game/types';
 
@@ -194,6 +194,14 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
 
         {/* Top-Right: Utility Icon Buttons (Mute [M], Pause [P], Restart [R]) */}
         <div className="flex items-center gap-2 pointer-events-auto">
+          <a
+            href="/"
+            title="Return to Hub"
+            aria-label="Return to Hub"
+            className="w-10 h-10 flex items-center justify-center rounded-xl bg-[#1A213F]/90 hover:bg-[#263059] border border-[#343F72] text-[#F7F2E7] transition-colors cursor-pointer"
+          >
+            <Home className="w-4 h-4" />
+          </a>
           <button
             type="button"
             tabIndex={-1}
