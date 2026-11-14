@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Lock, Music, Play, Shield, Sparkles, Swords, Upload, Check } from 'lucide-react';
+import { Lock, Music, Play, Shield, Sparkles, Swords, Upload, Users, Check } from 'lucide-react';
 import { BOSS_ROSTER } from '../game/bosses';
 import { CAT_SKINS, type CatSkinId } from '../game/skins';
 import type { BossId, GameMode, Mp3TrackConfig, PlayMode, TrackConfig } from '../game/types';
@@ -23,6 +23,7 @@ interface TitleOverlayProps {
   onSelectSkin: (id: CatSkinId) => void;
   bestScore: number;
   onStart: () => void;
+  onOpenMultiplayer: () => void;
 }
 
 export const TitleOverlay: React.FC<TitleOverlayProps> = ({
@@ -44,6 +45,7 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
   onSelectSkin,
   bestScore,
   onStart,
+  onOpenMultiplayer,
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [showWardrobe, setShowWardrobe] = useState(false);
@@ -262,6 +264,17 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
                 >
                   1-Hit
                 </button>
+                <button
+                  type="button"
+                  onClick={() => onSelectPlayMode('infinite')}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    playMode === 'infinite'
+                      ? 'bg-[#2B3563] text-[#34D399]'
+                      : 'text-[#F7F2E7]/65 hover:text-white'
+                  }`}
+                >
+                  Infinite
+                </button>
               </div>
             </div>
 
@@ -365,18 +378,29 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
               </div>
             )}
 
-            {/* Skin Preview Bar + Start CTA */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-1">
-              <button
-                type="button"
-                onClick={() => setShowWardrobe(true)}
-                className="flex items-center justify-center sm:justify-start gap-2 px-3.5 py-2.5 rounded-xl bg-[#1E2548] hover:bg-[#293362] border border-[#343F72] text-xs font-semibold text-[#F7F2E7] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                <Sparkles className="w-4 h-4 text-[#FFB830]" aria-hidden="true" />
-                <span>
-                  {activeSkinDef.name} ({unlockedSkins.length}/{CAT_SKINS.length})
-                </span>
-              </button>
+            {/* Skin Preview Bar + 1v1 Versus + Start CTA */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-1">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowWardrobe(true)}
+                  className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-[#1E2548] hover:bg-[#293362] border border-[#343F72] text-xs font-semibold text-[#F7F2E7] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-[#FFB830]" aria-hidden="true" />
+                  <span>
+                    {activeSkinDef.name} ({unlockedSkins.length}/{CAT_SKINS.length})
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  data-testid="open-multiplayer-btn"
+                  onClick={onOpenMultiplayer}
+                  className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-[#1F2C56] hover:bg-[#2A3B73] border border-[#3B5299] text-xs font-bold text-[#38BDF8] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <Users className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>1v1 Versus</span>
+                </button>
+              </div>
 
               <button
                 type="button"

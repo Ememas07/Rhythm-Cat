@@ -258,6 +258,7 @@ export function stepBossBattle(
   dt: number,
   songTime: number,
   worldWidth: number,
+  cameraY = 0,
 ): {
   bossDamagedThisFrame: number;
   bossJustDefeated: boolean;
@@ -267,8 +268,9 @@ export function stepBossBattle(
   let bossJustDefeated = false;
   let playerHitByProjectile = false;
 
-  // Keep boss anchored near right side on resize
+  // Keep boss anchored near right side on resize and aligned with vertical camera
   boss.x = Math.max(520, worldWidth - 135);
+  boss.baseY = 310 + cameraY;
 
   if (boss.attackCooldown > 0) boss.attackCooldown = Math.max(0, boss.attackCooldown - dt);
   if (boss.hitFlashTimer > 0) boss.hitFlashTimer = Math.max(0, boss.hitFlashTimer - dt);

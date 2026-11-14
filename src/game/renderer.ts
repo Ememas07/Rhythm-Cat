@@ -10,7 +10,17 @@ import type {
   CatPhysicsState,
   CollectibleNote,
   ObstacleGate,
+  SpineNode,
 } from './types';
+
+export interface OpponentVisualState {
+  name: string;
+  skin: CatSkinDefinition;
+  y: number;
+  pitch: number;
+  alive: boolean;
+  spine: SpineNode[];
+}
 
 export interface Particle {
   active: boolean;
@@ -153,10 +163,12 @@ export class GameRenderer {
       gates: ObstacleGate[];
       notes: CollectibleNote[];
       boss: BossRuntimeState | null;
+      cameraY: number;
       shakeX: number;
       shakeY: number;
       isPlaying: boolean;
       accentColor: string;
+      opponent?: OpponentVisualState | null;
     },
   ): void {
     const {
@@ -170,10 +182,12 @@ export class GameRenderer {
       gates,
       notes,
       boss,
+      cameraY,
       shakeX,
       shakeY,
       isPlaying,
       accentColor,
+      opponent,
     } = params;
 
     const scale = canvasHeight / WORLD_HEIGHT;
@@ -185,7 +199,11 @@ export class GameRenderer {
     // Beat pulse curve: sharpest right on the beat (beatProgress near 0 or 1)
     const beatPulse = Math.pow(Math.max(0, 1 - Math.min(beatProgress, 1 - beatProgress) * 4.5), 2);
 
-    this.drawSkyAndParallax(ctx, worldWidth, songTime, scrollSpeed, beatPulse, accentColor);
+    this.drawSkyAndParallax(ctx, worldWidth, songTime, scrollSpeed, beatPulse, accentColor, cameraY);
+
+    // World-space layers offset by smooth vertical camera
+    ctx.save();
+    ctx.translate(0, -cameraY);
 
     if (isPlaying) {
       this.drawGates(ctx, worldWidth, songTime, scrollSpeed, catX, gates, beatPulse, accentColor);
@@ -194,6 +212,11 @@ export class GameRenderer {
 
     if (boss) {
       this.drawBossAndCombat(ctx, boss, songTime, beatPulse);
+    }
+
+    // Render 1v1 rival sausage cat behind player cat so player remains crisp in foreground
+    if (isPlaying && opponent && opponent.spine.length >= 2) {
+      this.drawOpponentGhostCat(ctx, opponent, songTime, beatPulse);
     }
 
     // Gaze-routed subtle beat ring around the sausage cat during gameplay
@@ -206,7 +229,45 @@ export class GameRenderer {
     this.drawParticlesAndPops(ctx);
 
     ctx.restore();
+    ctx.restore();
     void canvasWidth;
+  }
+
+  private drawOpponentGhostCat(
+    ctx: CanvasRenderingContext2D,
+    opponent: OpponentVisualState,
+    songTime: number,
+    beatPulse: number,
+  ): void {
+    const ghostCat: CatPhysicsState = {
+      y: opponent.y,
+      vy: 0,
+      pitch: opponent.pitch,
+      squashX: 1,
+      squashY: 1,
+      invulnTimer: 0,
+      hitFlashTimer: 0,
+      happyTimer: 0,
+      spine: opponent.spine,
+    };
+
+    ctx.save();
+    ctx.globalAlpha = opponent.alive ? 0.56 : 0.24;
+    this.drawSausageCat(ctx, ghostCat, opponent.skin, songTime + 0.4, beatPulse);
+
+    // Floating rival name tag above head
+    const head = opponent.spine[0];
+    ctx.globalAlpha = opponent.alive ? 0.92 : 0.5;
+    ctx.font = '700 13px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.lineWidth = 3.5;
+    ctx.strokeStyle = '#0B0E1D';
+    const label = opponent.alive ? opponent.name : `${opponent.name} (KO)`;
+    ctx.strokeText(label, head.x + 2, head.y - 26);
+    ctx.fillStyle = opponent.alive ? '#38BDF8' : '#FCA5A5';
+    ctx.fillText(label, head.x + 2, head.y - 26);
+    ctx.restore();
   }
 
   private cachedSkyGrad: CanvasGradient | null = null;
@@ -219,34 +280,37 @@ export class GameRenderer {
     scrollSpeed: number,
     beatPulse: number,
     accentColor: string,
+    cameraY: number,
   ): void {
-    // Rich twilight sky gradient (cached to avoid per-frame allocations)
-    if (!this.cachedSkyGrad || this.cachedSkyBottom !== PLAYFIELD_BOTTOM) {
-      const skyGrad = ctx.createLinearGradient(0, 0, 0, PLAYFIELD_BOTTOM);
-      skyGrad.addColorStop(0, '#0F1326');
-      skyGrad.addColorStop(0.55, '#19203E');
-      skyGrad.addColorStop(1, '#272B4D');
+    // Rich twilight sky gradient fills full screen at any sky altitude
+    if (!this.cachedSkyGrad || this.cachedSkyBottom !== WORLD_HEIGHT) {
+      const skyGrad = ctx.createLinearGradient(0, 0, 0, WORLD_HEIGHT);
+      skyGrad.addColorStop(0, '#0B0F20');
+      skyGrad.addColorStop(0.55, '#171E3B');
+      skyGrad.addColorStop(1, '#262B4E');
       this.cachedSkyGrad = skyGrad;
-      this.cachedSkyBottom = PLAYFIELD_BOTTOM;
+      this.cachedSkyBottom = WORLD_HEIGHT;
     }
     ctx.fillStyle = this.cachedSkyGrad;
-    ctx.fillRect(-30, -30, worldWidth + 60, PLAYFIELD_BOTTOM + 40);
+    ctx.fillRect(-30, -30, worldWidth + 60, WORLD_HEIGHT + 60);
 
     // Subtle beat-reactive ambient horizon glow
     if (beatPulse > 0.02) {
       ctx.save();
       ctx.globalAlpha = 0.08 * beatPulse;
       ctx.fillStyle = accentColor;
-      ctx.fillRect(0, PLAYFIELD_BOTTOM - 160, worldWidth, 160);
+      ctx.fillRect(0, PLAYFIELD_BOTTOM - 160 - cameraY * 0.7, worldWidth, 160);
       ctx.restore();
     }
 
-    // Twinkling stars
+    // Twinkling stars wrap infinitely across vertical sky parallax
     ctx.fillStyle = '#F7F2E7';
-    for (let i = 0; i < 28; i++) {
+    const starShiftY = cameraY * 0.28;
+    for (let i = 0; i < 34; i++) {
       const sx = ((i * 173 + 47) % (worldWidth + 120)) - ((songTime * 10) % 120);
       const x = ((sx % worldWidth) + worldWidth) % worldWidth;
-      const y = 38 + ((i * 89) % 260);
+      const rawY = 38 + ((i * 89) % (WORLD_HEIGHT - 80)) - starShiftY;
+      const y = ((rawY % WORLD_HEIGHT) + WORLD_HEIGHT) % WORLD_HEIGHT;
       const twinkle = 0.35 + 0.45 * Math.sin(songTime * 2.2 + i) + 0.2 * beatPulse;
       ctx.globalAlpha = Math.min(0.95, Math.max(0.15, twinkle));
       const r = i % 4 === 0 ? 2.2 : 1.4;
@@ -256,9 +320,9 @@ export class GameRenderer {
     }
     ctx.globalAlpha = 1;
 
-    // Warm crescent moon in upper right negative space (clean vector crescent, zero dark cutout artifact)
+    // Warm crescent moon in upper right negative space (gentle vertical parallax)
     const moonX = worldWidth * 0.78;
-    const moonY = 112;
+    const moonY = 112 - cameraY * 0.18;
     ctx.save();
     ctx.globalAlpha = 0.14 + 0.06 * beatPulse;
     ctx.fillStyle = '#FDE68A';
@@ -281,29 +345,31 @@ export class GameRenderer {
     ctx.fill();
     ctx.restore();
 
-    // Far skyline silhouette
+    // Far skyline silhouette (shifted by cameraY parallax)
     const farOffset = (songTime * scrollSpeed * 0.12) % 240;
+    const farBaseY = PLAYFIELD_BOTTOM - cameraY * 0.55;
     ctx.fillStyle = '#141933';
     for (let x = -farOffset - 240; x < worldWidth + 240; x += 120) {
       const idx = Math.round((x + farOffset) / 120);
       const h = 110 + ((Math.abs(idx * 53) % 5) * 32);
-      ctx.fillRect(x, PLAYFIELD_BOTTOM - h, 108, h);
+      ctx.fillRect(x, farBaseY - h, 108, h + Math.max(0, -cameraY));
     }
 
     // Midground cozy rooftop townhouses with beat-pulsing lit windows
     const midOffset = (songTime * scrollSpeed * 0.28) % 320;
+    const midBaseY = PLAYFIELD_BOTTOM - cameraY * 0.85;
     for (let x = -midOffset - 320; x < worldWidth + 320; x += 160) {
       const idx = Math.round((x + midOffset) / 160);
       const h = 76 + ((Math.abs(idx * 37) % 4) * 28);
-      const topY = PLAYFIELD_BOTTOM - h;
+      const topY = midBaseY - h;
       ctx.fillStyle = '#1D2445';
-      ctx.fillRect(x, topY, 144, h);
+      ctx.fillRect(x, topY, 144, h + Math.max(0, -cameraY));
       // Roof cap
       ctx.fillStyle = '#29325C';
       ctx.fillRect(x - 4, topY - 6, 152, 8);
 
       // Warm lit windows
-      for (let wy = topY + 16; wy < PLAYFIELD_BOTTOM - 22; wy += 26) {
+      for (let wy = topY + 16; wy < midBaseY - 22; wy += 26) {
         for (let wx = x + 16; wx < x + 122; wx += 30) {
           const lit = ((idx + wx + wy) % 3) !== 0;
           if (!lit) continue;
@@ -380,13 +446,14 @@ export class GameRenderer {
       const highlightColor = gate.accented ? accentColor : '#64748B';
       const capHeight = 20;
 
-      // Top organ pipe column
+      // Top organ pipe column extends high into the unconstrained sky
+      const skyTopY = PLAYFIELD_TOP - 1000;
       this.drawPipeColumn(
         ctx,
         left,
-        PLAYFIELD_TOP - 24,
+        skyTopY,
         gate.width,
-        gapTop - (PLAYFIELD_TOP - 24),
+        gapTop - skyTopY,
         bodyColor,
         highlightColor,
         'top',

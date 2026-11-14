@@ -1,13 +1,25 @@
-import type { CatPhysicsState, CollectibleNote, ObstacleGate, SpineNode } from './types';
+import type { CatPhysicsState, CollectibleNote, ObstacleGate, PlayMode, SpineNode } from './types';
+
+export function resolveLivesAfterHit(
+  currentLives: number,
+  playMode: PlayMode,
+): { nextLives: number; isGameOver: boolean } {
+  if (playMode === 'infinite') {
+    return { nextLives: currentLives, isGameOver: false };
+  }
+  const nextLives = Math.max(0, currentLives - 1);
+  return { nextLives, isGameOver: nextLives <= 0 };
+}
 
 export const WORLD_HEIGHT = 720;
 export const GROUND_HEIGHT = 84;
-export const PLAYFIELD_TOP = 18;
+// Unconstrained upper sky headroom so ascending beat runs can climb freely without ceiling bonks
+export const PLAYFIELD_TOP = -1400;
 export const PLAYFIELD_BOTTOM = WORLD_HEIGHT - GROUND_HEIGHT;
 
-export const GRAVITY = 1480;
-export const JUMP_VELOCITY = -475;
-export const MAX_FALL_SPEED = 660;
+export const GRAVITY = 1120;
+export const JUMP_VELOCITY = -410;
+export const MAX_FALL_SPEED = 600;
 export const SPINE_SEGMENTS = 6;
 export const SPINE_SEGMENT_STEP = 14;
 export const CAT_COLLISION_RADIUS = 16;
@@ -81,7 +93,6 @@ export function stepCatPhysics(
     for (let i = 1; i < cat.spine.length; i++) {
       const prev = cat.spine[i - 1];
       const curr = cat.spine[i];
-      // Simulate trailing behind as the cat flies forward
       const targetX = prev.x - SPINE_SEGMENT_STEP;
       const lagY = prev.y + (cat.vy * (SPINE_SEGMENT_STEP / horizontalLead)) * 0.38;
       curr.x = targetX;
@@ -129,13 +140,14 @@ export function checkGateCollision(
   const left = gateX - gate.width / 2;
   const gapTop = gate.gapCenterY - gate.gapHeight / 2;
   const gapBottom = gate.gapCenterY + gate.gapHeight / 2;
+  const skyTop = PLAYFIELD_TOP - 1000;
 
   // Check head and key spine segments along the sausage cat body
   for (let i = 0; i < cat.spine.length; i += 2) {
     const node = cat.spine[i];
     const radius = i === 0 ? CAT_COLLISION_RADIUS : CAT_COLLISION_RADIUS - 2;
     if (
-      circleIntersectsRect(node.x, node.y, radius, left, 0, gate.width, gapTop) ||
+      circleIntersectsRect(node.x, node.y, radius, left, skyTop, gate.width, gapTop - skyTop) ||
       circleIntersectsRect(
         node.x,
         node.y,

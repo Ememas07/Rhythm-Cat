@@ -11,13 +11,15 @@ import {
   checkGateCollision,
   checkNoteCollect,
   createInitialCatState,
+  resolveLivesAfterHit,
   stepCatPhysics,
   WORLD_HEIGHT,
 } from './physics';
-import { GameRenderer } from './renderer';
+import { GameRenderer, type OpponentVisualState } from './renderer';
 import { computeAccuracyPercent, evaluateBeatJump, getNearestBeatDeltaSec } from './rhythmJudge';
 import { getSkinById, type CatSkinId } from './skins';
 import { buildSynthTrackAnalysis } from './tracks';
+import type { RoomPlayerState } from './multiplayerTypes';
 import type {
   AudioAnalysisResult,
   BossId,
@@ -26,16 +28,34 @@ import type {
   GameMode,
   GameState,
   HudSnapshot,
+  JudgmentTier,
   LevelChart,
   PlayMode,
   RunStats,
+  SpineNode,
   TrackConfig,
 } from './types';
+
+export interface MultiplayerTelemetryPayload {
+  y: number;
+  vy: number;
+  pitch: number;
+  score: number;
+  combo: number;
+  maxCombo: number;
+  lives: number;
+  maxLives: number;
+  accuracyPct: number;
+  songProgress: number;
+  lastJudgment: JudgmentTier | null;
+  alive: boolean;
+}
 
 export interface EngineCallbacks {
   onHudUpdate: (hud: HudSnapshot) => void;
   onGameOver: (stats: RunStats) => void;
   onStateChange: (state: GameState) => void;
+  onMultiplayerTelemetry?: (telemetry: MultiplayerTelemetryPayload) => void;
 }
 
 export class SausageCatEngine {
@@ -68,6 +88,8 @@ export class SausageCatEngine {
   private shakeTrauma = 0;
   private deathDelayTimer = 0;
   private pendingGameOverStats: RunStats | null = null;
+  private pausedRendered = false;
+  private cameraY = 0;
 
   // Run counters
   private score = 0;
@@ -88,6 +110,21 @@ export class SausageCatEngine {
   // Input buffer for snappy jump responsiveness
   private jumpBufferTimer = 0;
   private lastHudPushTime = 0;
+
+  // 1v1 Multiplayer state
+  private multiplayerActive = false;
+  private lastTelemetryPushTime = 0;
+  private opponentTarget: {
+    name: string;
+    skinId: CatSkinId;
+    y: number;
+    vy: number;
+    pitch: number;
+    alive: boolean;
+  } | null = null;
+  private opponentRenderY = 310;
+  private opponentRenderPitch = 0;
+  private opponentSpine: SpineNode[] = [];
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -134,6 +171,7 @@ export class SausageCatEngine {
 
     this.worldWidth = Math.max(580, Math.round(WORLD_HEIGHT * (w / h)));
     this.catX = Math.min(250, Math.round(this.worldWidth * 0.25));
+    this.pausedRendered = false;
   }
 
   public configureSession(opts: {
@@ -162,12 +200,81 @@ export class SausageCatEngine {
     return this.state;
   }
 
+  public isMultiplayer(): boolean {
+    return this.multiplayerActive;
+  }
+
+  public clearMultiplayer(): void {
+    this.multiplayerActive = false;
+    this.opponentTarget = null;
+    this.opponentSpine = [];
+  }
+
+  public setOpponentState(opponent: RoomPlayerState | null): void {
+    if (!opponent) {
+      this.opponentTarget = null;
+      return;
+    }
+    if (!this.opponentTarget) {
+      this.opponentRenderY = opponent.y;
+      this.opponentRenderPitch = opponent.pitch;
+      this.opponentSpine = Array.from({ length: 6 }, (_, i) => ({
+        x: this.catX - 18 - i * 14,
+        y: opponent.y,
+      }));
+    }
+    this.opponentTarget = {
+      name: opponent.name,
+      skinId: opponent.skinId,
+      y: opponent.y,
+      vy: opponent.vy,
+      pitch: opponent.pitch,
+      alive: opponent.alive,
+    };
+  }
+
   public startGame(): void {
+    this.multiplayerActive = false;
+    this.opponentTarget = null;
+    this.opponentSpine = [];
     this.chart = generateLevelFromAnalysis(this.analysis, {
       gameMode: this.gameMode,
       seed: this.track.id.length * 97 + Math.round(this.track.bpm),
     });
+    this.resetRunAndBegin();
+  }
 
+  public startMultiplayerMatch(opts: {
+    track: TrackConfig;
+    chart: LevelChart;
+    playMode: PlayMode;
+    skinId: CatSkinId;
+    bestScore: number;
+    opponent: RoomPlayerState | null;
+  }): void {
+    this.track = opts.track;
+    this.gameMode = 'arcade';
+    this.playMode = opts.playMode;
+    this.skinId = opts.skinId;
+    this.bestScore = opts.bestScore;
+    this.multiplayerActive = true;
+    this.lastTelemetryPushTime = 0;
+
+    // Clone server-authoritative chart so gate/note flags reset cleanly on rematches
+    this.chart = {
+      ...opts.chart,
+      beatTimes: [...opts.chart.beatTimes],
+      gates: opts.chart.gates.map((g) => ({ ...g, passed: false, hit: false })),
+      notes: opts.chart.notes.map((n) => ({ ...n, collected: false, missed: false })),
+    };
+
+    this.opponentTarget = null;
+    this.opponentSpine = [];
+    this.setOpponentState(opts.opponent);
+    this.resetRunAndBegin();
+  }
+
+  private resetRunAndBegin(): void {
     this.cat = createInitialCatState(this.catX);
     this.renderer.clearEffects();
 
@@ -189,9 +296,10 @@ export class SausageCatEngine {
     this.shakeTrauma = 0;
     this.deathDelayTimer = 0;
     this.pendingGameOverStats = null;
+    this.cameraY = 0;
 
     this.boss =
-      this.gameMode === 'boss'
+      !this.multiplayerActive && this.gameMode === 'boss'
         ? createBossState(this.bossId, this.worldWidth, this.chart.durationSec)
         : null;
 
@@ -199,11 +307,13 @@ export class SausageCatEngine {
     this.callbacks.onStateChange('playing');
     this.audio.startTrack(this.track, this.chart.firstBeatSec);
     this.pushHud(true);
+    this.pushMultiplayerTelemetry(true);
   }
 
   public pauseGame(): void {
-    if (this.state !== 'playing') return;
+    if (this.state !== 'playing' || this.multiplayerActive) return;
     this.state = 'paused';
+    this.pausedRendered = false;
     this.audio.pause();
     this.callbacks.onStateChange('paused');
   }
@@ -211,6 +321,7 @@ export class SausageCatEngine {
   public resumeGame(): void {
     if (this.state !== 'paused') return;
     this.state = 'playing';
+    this.pausedRendered = false;
     this.audio.resume();
     this.callbacks.onStateChange('playing');
   }
@@ -218,8 +329,10 @@ export class SausageCatEngine {
   public returnToTitle(): void {
     this.audio.stop();
     this.boss = null;
+    this.clearMultiplayer();
     this.pendingGameOverStats = null;
     this.deathDelayTimer = 0;
+    this.cameraY = 0;
     this.cat = createInitialCatState(this.catX);
     this.state = 'title';
     this.callbacks.onStateChange('title');
@@ -286,7 +399,12 @@ export class SausageCatEngine {
       const dt = Math.min(rawDt, 0.05);
 
       this.update(dt, now);
-      this.render();
+      if (this.state !== 'paused' || !this.pausedRendered) {
+        this.render();
+        if (this.state === 'paused') {
+          this.pausedRendered = true;
+        }
+      }
 
       this.rafId = requestAnimationFrame(tick);
     };
@@ -349,6 +467,10 @@ export class SausageCatEngine {
     // Opening grace period (~2.1s or until first jump) guarantees survival without instant input
     const isIntroGrace = !this.hasJumpedYet && songTime < 2.2;
     stepCatPhysics(this.cat, dt, this.catX, this.chart.scrollSpeed, isIntroGrace);
+
+    // Smooth vertical camera follow when climbing above standard sky horizon
+    const targetCameraY = Math.min(0, this.cat.y - 285);
+    this.cameraY += (targetCameraY - this.cameraY) * (1 - Math.exp(-7.5 * dt));
 
     // Check gate passes & collisions
     for (const gate of this.chart.gates) {
@@ -415,7 +537,7 @@ export class SausageCatEngine {
 
     // Step Boss Battle combat
     if (this.boss) {
-      const bossRes = stepBossBattle(this.boss, this.cat, dt, songTime, this.worldWidth);
+      const bossRes = stepBossBattle(this.boss, this.cat, dt, songTime, this.worldWidth, this.cameraY);
       if (bossRes.bossDamagedThisFrame > 0) {
         this.score += bossRes.bossDamagedThisFrame * 5;
         this.renderer.spawnBurst(this.boss.x - 24, this.boss.y, '#FDE047', 8, 220, 4.5);
@@ -463,13 +585,68 @@ export class SausageCatEngine {
       return;
     }
 
+    // Smoothly interpolate opponent ghost cat & trail if in 1v1 multiplayer
+    if (this.multiplayerActive && this.opponentTarget) {
+      const lerp = 1 - Math.exp(-16 * dt);
+      this.opponentRenderY += (this.opponentTarget.y - this.opponentRenderY) * lerp;
+      this.opponentRenderPitch += (this.opponentTarget.pitch - this.opponentRenderPitch) * lerp;
+
+      if (this.opponentSpine.length > 0) {
+        const oppX = this.catX - 18;
+        this.opponentSpine[0].x = oppX;
+        this.opponentSpine[0].y = this.opponentRenderY;
+        for (let i = 1; i < this.opponentSpine.length; i++) {
+          const prev = this.opponentSpine[i - 1];
+          const curr = this.opponentSpine[i];
+          curr.x = oppX - i * 14;
+          const wave = Math.sin(songTime * 11 - i * 0.7) * 2.2;
+          curr.y += (prev.y + wave - curr.y) * (1 - Math.exp(-20 * dt));
+        }
+      }
+    }
+
     if (nowMs - this.lastHudPushTime > 120) {
       this.pushHud(false);
     }
+    if (this.multiplayerActive && nowMs - this.lastTelemetryPushTime > 50) {
+      this.pushMultiplayerTelemetry(false);
+    }
+  }
+
+  private pushMultiplayerTelemetry(force: boolean): void {
+    if (!this.multiplayerActive || !this.callbacks.onMultiplayerTelemetry) return;
+    const now = performance.now();
+    if (!force && now - this.lastTelemetryPushTime < 48) return;
+    this.lastTelemetryPushTime = now;
+
+    const songTime = this.audio.getSongTime();
+    const accuracyPct = computeAccuracyPercent(
+      this.perfectCount,
+      this.goodCount,
+      this.offbeatCount,
+    );
+    const alive =
+      this.pendingGameOverStats === null || this.pendingGameOverStats.victory;
+
+    this.callbacks.onMultiplayerTelemetry({
+      y: this.cat.y,
+      vy: this.cat.vy,
+      pitch: this.cat.pitch,
+      score: Math.round(this.score),
+      combo: this.combo,
+      maxCombo: this.maxCombo,
+      lives: this.lives,
+      maxLives: this.maxLives,
+      accuracyPct,
+      songProgress: Math.min(1, songTime / Math.max(1, this.chart.durationSec)),
+      lastJudgment: this.lastJudgment,
+      alive,
+    });
   }
 
   private handlePlayerHurt(label: string): void {
-    this.lives = Math.max(0, this.lives - 1);
+    const { nextLives, isGameOver } = resolveLivesAfterHit(this.lives, this.playMode);
+    this.lives = nextLives;
     this.combo = 0;
     this.multiplier = 1;
     this.cat.invulnTimer = 1.25;
@@ -481,7 +658,7 @@ export class SausageCatEngine {
     this.renderer.spawnPop(this.catX, this.cat.y - 36, label, '#FCA5A5', 1.1);
     this.pushHud(true);
 
-    if (this.lives <= 0) {
+    if (isGameOver) {
       const songTime = this.audio.getSongTime();
       this.pendingGameOverStats = this.buildRunStats(false, 'defeat', songTime);
       this.deathDelayTimer = 0.52;
@@ -513,6 +690,7 @@ export class SausageCatEngine {
       totalGates: this.chart.gates.length,
       lives: this.lives,
       maxLives: this.maxLives,
+      infiniteLives: this.playMode === 'infinite',
       accuracyPct,
       victory,
       victoryReason,
@@ -545,6 +723,7 @@ export class SausageCatEngine {
       multiplier: this.multiplier,
       lives: this.lives,
       maxLives: this.maxLives,
+      infiniteLives: this.playMode === 'infinite',
       accuracyPct,
       songProgress: Math.min(1, songTime / Math.max(1, this.chart.durationSec)),
       lastJudgment: this.lastJudgment,
@@ -574,6 +753,18 @@ export class SausageCatEngine {
     const shakeX = shakeMag > 0.1 ? (Math.random() * 2 - 1) * shakeMag : 0;
     const shakeY = shakeMag > 0.1 ? (Math.random() * 2 - 1) * shakeMag : 0;
 
+    const opponentVisual: OpponentVisualState | null =
+      this.multiplayerActive && this.opponentTarget && this.opponentSpine.length >= 2
+        ? {
+            name: this.opponentTarget.name,
+            skin: getSkinById(this.opponentTarget.skinId),
+            y: this.opponentRenderY,
+            pitch: this.opponentRenderPitch,
+            alive: this.opponentTarget.alive,
+            spine: this.opponentSpine,
+          }
+        : null;
+
     this.renderer.renderFrame(this.ctx, this.canvas.width, this.canvas.height, {
       worldWidth: this.worldWidth,
       songTime,
@@ -585,10 +776,12 @@ export class SausageCatEngine {
       gates: this.chart.gates,
       notes: this.chart.notes,
       boss: this.boss,
+      cameraY: this.cameraY,
       shakeX,
       shakeY,
       isPlaying: this.state === 'playing' || this.state === 'paused',
       accentColor: this.track.accentColor,
+      opponent: opponentVisual,
     });
   }
 }

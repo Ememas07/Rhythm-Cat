@@ -1,5 +1,6 @@
 import React from 'react';
-import { Pause, RotateCcw, Volume2, VolumeX } from 'lucide-react';
+import { LogOut, Pause, RotateCcw, Volume2, VolumeX } from 'lucide-react';
+import type { RoomPlayerState } from '../game/multiplayerTypes';
 import type { HudSnapshot } from '../game/types';
 
 interface HudOverlayProps {
@@ -8,6 +9,8 @@ interface HudOverlayProps {
   onToggleMute: () => void;
   onPause: () => void;
   onRestart: () => void;
+  multiplayerOpponent?: RoomPlayerState | null;
+  onLeaveMultiplayer?: () => void;
 }
 
 export const HudOverlay: React.FC<HudOverlayProps> = ({
@@ -16,10 +19,13 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   onToggleMute,
   onPause,
   onRestart,
+  multiplayerOpponent = null,
+  onLeaveMultiplayer,
 }) => {
   const bossPct = hud.bossMaxHp > 0 ? Math.max(0, Math.min(100, (hud.bossHp / hud.bossMaxHp) * 100)) : 0;
   const bossGhostPct =
     hud.bossMaxHp > 0 ? Math.max(0, Math.min(100, (hud.bossGhostHp / hud.bossMaxHp) * 100)) : 0;
+  const isMultiplayer = Boolean(multiplayerOpponent);
 
   return (
     <div className="fixed inset-0 z-10 pointer-events-none flex flex-col justify-between">
@@ -44,27 +50,49 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               {hud.score.toLocaleString()}
             </div>
 
-            {/* 3-State Vitality Cat Hearts */}
-            <div className="flex items-center gap-1" aria-label={`Lives ${hud.lives} of ${hud.maxLives}`}>
-              {Array.from({ length: hud.maxLives }).map((_, idx) => {
-                const filled = idx < hud.lives;
-                return (
-                  <svg
-                    key={idx}
-                    viewBox="0 0 24 24"
-                    className="w-6 h-6 drop-shadow-[0_2px_3px_rgba(0,0,0,0.5)]"
-                    aria-hidden="true"
-                  >
-                    <path
-                      d="M12 20.5s-7.5-4.7-9.2-9.2C1.7 8.3 3.7 5 6.8 5c1.8 0 3.3.9 4.2 2.2L12 8.6l1-1.4C13.9 5.9 15.4 5 17.2 5c3.1 0 5.1 3.3 4 6.3-1.7 4.5-9.2 9.2-9.2 9.2z"
-                      fill={filled ? '#FF6B4A' : '#1E2544'}
-                      stroke="#0F1326"
-                      strokeWidth="2"
-                    />
-                  </svg>
-                );
-              })}
-            </div>
+            {/* 3-State Vitality Cat Hearts or Infinite Lives */}
+            {hud.infiniteLives ? (
+              <div
+                className="flex items-center gap-1.5 text-[#34D399] font-mono-num text-base font-bold"
+                style={{ textShadow: '0 2px 4px rgba(0,0,0,0.65)' }}
+                aria-label="Infinite Lives"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="w-6 h-6 drop-shadow-[0_2px_3px_rgba(0,0,0,0.5)]"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M12 20.5s-7.5-4.7-9.2-9.2C1.7 8.3 3.7 5 6.8 5c1.8 0 3.3.9 4.2 2.2L12 8.6l1-1.4C13.9 5.9 15.4 5 17.2 5c3.1 0 5.1 3.3 4 6.3-1.7 4.5-9.2 9.2-9.2 9.2z"
+                    fill="#34D399"
+                    stroke="#0F1326"
+                    strokeWidth="2"
+                  />
+                </svg>
+                <span>∞</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1" aria-label={`Lives ${hud.lives} of ${hud.maxLives}`}>
+                {Array.from({ length: hud.maxLives }).map((_, idx) => {
+                  const filled = idx < hud.lives;
+                  return (
+                    <svg
+                      key={idx}
+                      viewBox="0 0 24 24"
+                      className="w-6 h-6 drop-shadow-[0_2px_3px_rgba(0,0,0,0.5)]"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M12 20.5s-7.5-4.7-9.2-9.2C1.7 8.3 3.7 5 6.8 5c1.8 0 3.3.9 4.2 2.2L12 8.6l1-1.4C13.9 5.9 15.4 5 17.2 5c3.1 0 5.1 3.3 4 6.3-1.7 4.5-9.2 9.2-9.2 9.2z"
+                        fill={filled ? '#FF6B4A' : '#1E2544'}
+                        stroke="#0F1326"
+                        strokeWidth="2"
+                      />
+                    </svg>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div
@@ -120,6 +148,33 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           </div>
         )}
 
+        {/* Top-Center: 1v1 Live Rival Score Strip (when in 1v1 Multiplayer) */}
+        {multiplayerOpponent && (
+          <div
+            data-testid="mp-rival-hud"
+            className="hidden sm:flex items-center gap-3 px-3.5 py-1.5 rounded-xl bg-[#101428]/90 border border-[#2E3863] shadow-md"
+          >
+            <div className="text-right">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-[#FFB830]">
+                You
+              </div>
+              <div className="font-mono-num text-sm font-extrabold text-[#F7F2E7]">
+                {hud.score.toLocaleString()}
+              </div>
+            </div>
+            <span className="text-xs font-extrabold text-[#F7F2E7]/45">VS</span>
+            <div className="text-left">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-[#38BDF8] truncate max-w-[110px]">
+                {multiplayerOpponent.name}
+                {!multiplayerOpponent.alive ? ' (KO)' : ''}
+              </div>
+              <div className="font-mono-num text-sm font-extrabold text-[#F7F2E7]">
+                {multiplayerOpponent.score.toLocaleString()}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Top-Right: Utility Icon Buttons (Mute [M], Pause [P], Restart [R]) */}
         <div className="flex items-center gap-2 pointer-events-auto">
           <button
@@ -135,32 +190,50 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           >
             {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
           </button>
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label="Restart song (R)"
-            title="Restart (R)"
-            onClick={(e) => {
-              e.currentTarget.blur();
-              onRestart();
-            }}
-            className="w-10 h-10 flex items-center justify-center rounded-xl bg-[#1A213F]/90 hover:bg-[#263059] border border-[#343F72] text-[#F7F2E7] transition-colors cursor-pointer"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label="Pause game (P)"
-            title="Pause (P)"
-            onClick={(e) => {
-              e.currentTarget.blur();
-              onPause();
-            }}
-            className="w-10 h-10 flex items-center justify-center rounded-xl bg-[#1A213F]/90 hover:bg-[#263059] border border-[#343F72] text-[#F7F2E7] transition-colors cursor-pointer"
-          >
-            <Pause className="w-4 h-4" />
-          </button>
+          {isMultiplayer ? (
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label="Leave 1v1 match"
+              title="Leave 1v1 Match"
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onLeaveMultiplayer?.();
+              }}
+              className="w-10 h-10 flex items-center justify-center rounded-xl bg-[#1A213F]/90 hover:bg-[#3B1E2E] border border-[#343F72] text-[#FCA5A5] transition-colors cursor-pointer"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-label="Restart song (R)"
+                title="Restart (R)"
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  onRestart();
+                }}
+                className="w-10 h-10 flex items-center justify-center rounded-xl bg-[#1A213F]/90 hover:bg-[#263059] border border-[#343F72] text-[#F7F2E7] transition-colors cursor-pointer"
+              >
+                <RotateCcw className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-label="Pause game (P)"
+                title="Pause (P)"
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  onPause();
+                }}
+                className="w-10 h-10 flex items-center justify-center rounded-xl bg-[#1A213F]/90 hover:bg-[#263059] border border-[#343F72] text-[#F7F2E7] transition-colors cursor-pointer"
+              >
+                <Pause className="w-4 h-4" />
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

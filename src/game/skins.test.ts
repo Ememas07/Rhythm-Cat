@@ -18,6 +18,7 @@ function makeStats(overrides: Partial<RunStats> = {}): RunStats {
     totalGates: 20,
     lives: 3,
     maxLives: 3,
+    infiniteLives: false,
     accuracyPct: 70,
     victory: false,
     victoryReason: 'defeat',

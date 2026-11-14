@@ -13,6 +13,7 @@ export class RhythmAudioEngine {
   private noiseBuffer: AudioBuffer | null = null;
 
   private muted = false;
+  private volume = 0.85;
   private isPlaying = false;
   private currentTrack: TrackConfig | null = null;
   private mp3Source: AudioBufferSourceNode | null = null;
@@ -32,7 +33,7 @@ export class RhythmAudioEngine {
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new AudioCtx();
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.value = this.muted ? 0 : 0.85;
+      this.masterGain.gain.value = this.muted ? 0 : this.volume;
       this.masterGain.connect(this.ctx.destination);
 
       this.musicGain = this.ctx.createGain();
@@ -67,10 +68,25 @@ export class RhythmAudioEngine {
     return this.muted;
   }
 
+  public getVolume(): number {
+    return this.volume;
+  }
+
+  public setVolume(nextVolume: number): void {
+    const clamped = Math.max(0, Math.min(1, nextVolume));
+    this.volume = clamped;
+    if (clamped > 0 && this.muted) {
+      this.muted = false;
+    }
+    if (this.masterGain && this.ctx) {
+      this.masterGain.gain.setTargetAtTime(this.muted ? 0 : this.volume, this.ctx.currentTime, 0.02);
+    }
+  }
+
   public setMuted(muted: boolean): void {
     this.muted = muted;
     if (this.masterGain && this.ctx) {
-      this.masterGain.gain.setTargetAtTime(muted ? 0 : 0.85, this.ctx.currentTime, 0.02);
+      this.masterGain.gain.setTargetAtTime(muted ? 0 : this.volume, this.ctx.currentTime, 0.02);
     }
   }
 
@@ -82,13 +98,25 @@ export class RhythmAudioEngine {
   public async decodeAndAnalyzeMp3(file: File): Promise<{
     audioBuffer: AudioBuffer;
     analysis: AudioAnalysisResult;
+    rawBuffer: ArrayBuffer;
+    mimeType: string;
   }> {
     const ctx = this.ensureContext();
-    const arrayBuffer = await file.arrayBuffer();
-    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+    const rawBuffer = await file.arrayBuffer();
+    const audioBuffer = await ctx.decodeAudioData(rawBuffer.slice(0));
     const mono = mixAudioBufferToMono(audioBuffer);
     const analysis = analyzeAudioSamples(mono, audioBuffer.sampleRate);
-    return { audioBuffer, analysis };
+    return {
+      audioBuffer,
+      analysis,
+      rawBuffer,
+      mimeType: file.type || 'audio/mpeg',
+    };
+  }
+
+  public async decodeMp3ArrayBuffer(rawBuffer: ArrayBuffer): Promise<AudioBuffer> {
+    const ctx = this.ensureContext();
+    return ctx.decodeAudioData(rawBuffer.slice(0));
   }
 
   public startTrack(track: TrackConfig, firstBeatSec = 0.25): void {

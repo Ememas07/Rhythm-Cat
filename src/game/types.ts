@@ -1,6 +1,6 @@
 export type GameState = 'title' | 'playing' | 'paused' | 'gameover';
 
-export type PlayMode = 'lives' | 'sudden-death';
+export type PlayMode = 'lives' | 'sudden-death' | 'infinite';
 
 export type GameMode = 'arcade' | 'boss';
 
@@ -182,6 +182,7 @@ export interface RunStats {
   totalGates: number;
   lives: number;
   maxLives: number;
+  infiniteLives: boolean;
   accuracyPct: number;
   victory: boolean;
   victoryReason: 'song-cleared' | 'boss-defeated' | 'defeat';
@@ -201,6 +202,7 @@ export interface HudSnapshot {
   multiplier: number;
   lives: number;
   maxLives: number;
+  infiniteLives: boolean;
   accuracyPct: number;
   songProgress: number;
   lastJudgment: JudgmentTier | null;
