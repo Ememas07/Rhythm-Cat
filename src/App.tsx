@@ -28,6 +28,7 @@ import { buildSynthTrackAnalysis, BUILTIN_TRACKS } from './game/tracks';
 import type {
   AudioAnalysisResult,
   BossId,
+  ControlMode,
   DifficultyLevel,
   GameMode,
   GameState,
@@ -63,6 +64,7 @@ const INITIAL_HUD: HudSnapshot = {
   scoreCounted: true,
   difficulty: 'normal',
   autoMode: false,
+  rhythmOnlyMode: false,
   accuracyPct: 100,
   songProgress: 0,
   lastJudgment: null,
@@ -100,7 +102,7 @@ export default function App() {
   const [gameMode, setGameMode] = useState<GameMode>('arcade');
   const [playMode, setPlayMode] = useState<PlayMode>('lives');
   const [difficulty, setDifficulty] = useState<DifficultyLevel>('normal');
-  const [autoMode, setAutoMode] = useState<boolean>(false);
+  const [controlMode, setControlMode] = useState<ControlMode>('manual');
   const [bossId, setBossId] = useState<BossId>('metronome');
   const [selectedTrackId, setSelectedTrackId] = useState<string>(BUILTIN_TRACKS[0].id);
 
@@ -181,7 +183,7 @@ export default function App() {
     gameMode,
     playMode,
     difficulty,
-    autoMode,
+    controlMode,
     bossId,
     progress,
     importedTrack,
@@ -192,7 +194,7 @@ export default function App() {
     gameMode,
     playMode,
     difficulty,
-    autoMode,
+    controlMode,
     bossId,
     progress,
     importedTrack,
@@ -475,6 +477,7 @@ export default function App() {
         playMode: 'lives',
         difficulty: 'normal',
         autoMode: false,
+        rhythmOnlyMode: false,
         bossId: 'metronome',
         skinId: latestConfigRef.current.progress.selectedSkin,
         bestScore: latestConfigRef.current.progress.bestScore,
@@ -511,14 +514,15 @@ export default function App() {
       gameMode,
       playMode,
       difficulty,
-      autoMode,
+      autoMode: controlMode === 'auto',
+      rhythmOnlyMode: controlMode === 'rhythm-only',
       bossId,
       skinId: progress.selectedSkin,
       bestScore: progress.bestScore,
     });
     engine.startGame();
     canvasRef.current?.focus();
-  }, [activeAnalysis, activeTrack, autoMode, bossId, difficulty, gameMode, playMode, progress.bestScore, progress.selectedSkin]);
+  }, [activeAnalysis, activeTrack, bossId, controlMode, difficulty, gameMode, playMode, progress.bestScore, progress.selectedSkin]);
 
   const handleToggleMute = useCallback(() => {
     if (!audioRef.current) return;
@@ -865,8 +869,8 @@ export default function App() {
           onSelectPlayMode={handleSelectPlayMode}
           difficulty={difficulty}
           onSelectDifficulty={setDifficulty}
-          autoMode={autoMode}
-          onToggleAutoMode={() => setAutoMode((v) => !v)}
+          controlMode={controlMode}
+          onSelectControlMode={setControlMode}
           bossId={bossId}
           onSelectBoss={setBossId}
           selectedSkin={progress.selectedSkin}

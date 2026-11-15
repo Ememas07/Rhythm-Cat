@@ -4,6 +4,7 @@ import { BOSS_ROSTER } from '../game/bosses';
 import { CAT_SKINS, type CatSkinId } from '../game/skins';
 import type {
   BossId,
+  ControlMode,
   DifficultyLevel,
   GameMode,
   Mp3TrackConfig,
@@ -27,8 +28,8 @@ interface TitleOverlayProps {
   onSelectPlayMode: (mode: PlayMode) => void;
   difficulty: DifficultyLevel;
   onSelectDifficulty: (difficulty: DifficultyLevel) => void;
-  autoMode: boolean;
-  onToggleAutoMode: () => void;
+  controlMode: ControlMode;
+  onSelectControlMode: (mode: ControlMode) => void;
   bossId: BossId;
   onSelectBoss: (id: BossId) => void;
   selectedSkin: CatSkinId;
@@ -53,8 +54,8 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
   onSelectPlayMode,
   difficulty,
   onSelectDifficulty,
-  autoMode,
-  onToggleAutoMode,
+  controlMode,
+  onSelectControlMode,
   bossId,
   onSelectBoss,
   selectedSkin,
@@ -151,6 +152,7 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
               BEAT FLIGHT
             </text>
           </svg>
+          </a>
         </div>
 
         {bestScore > 0 && (
@@ -303,9 +305,9 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
               </div>
             </div>
 
-            {/* Difficulty Slider + Auto Mode Toggle */}
+            {/* Difficulty Slider + Flight Control Selector */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 p-2.5 rounded-xl bg-[#101428] border border-[#28315A]">
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-[130px]">
                 <div className="flex items-center justify-between gap-2 mb-1">
                   <label
                     htmlFor="difficulty-slider"
@@ -357,20 +359,53 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
                 </div>
               </div>
 
-              <button
-                type="button"
-                data-testid="toggle-auto-btn"
-                aria-pressed={autoMode}
-                onClick={onToggleAutoMode}
-                className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                  autoMode
-                    ? 'bg-[#1B3A4B] border-[#38BDF8] text-[#38BDF8]'
-                    : 'bg-[#181F3D] border-[#2C3560] text-[#F7F2E7]/75 hover:border-[#4B5894]'
-                }`}
+              <div
+                className="grid grid-cols-3 sm:inline-flex items-center p-1 rounded-xl bg-[#171C34] border border-[#2C3560] shrink-0"
+                role="group"
+                aria-label="Flight Control Mode"
               >
-                <Bot className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>{autoMode ? 'Auto: ON' : 'Auto: OFF'}</span>
-              </button>
+                <button
+                  type="button"
+                  data-testid="control-mode-manual"
+                  aria-pressed={controlMode === 'manual'}
+                  onClick={() => onSelectControlMode('manual')}
+                  className={`px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    controlMode === 'manual'
+                      ? 'bg-[#2B3563] text-[#F7F2E7]'
+                      : 'text-[#F7F2E7]/65 hover:text-white'
+                  }`}
+                >
+                  Manual
+                </button>
+                <button
+                  type="button"
+                  data-testid="control-mode-rhythm-only"
+                  aria-pressed={controlMode === 'rhythm-only'}
+                  onClick={() => onSelectControlMode('rhythm-only')}
+                  className={`flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    controlMode === 'rhythm-only'
+                      ? 'bg-[#3B2A14] border border-[#FFB830]/70 text-[#FFB830]'
+                      : 'text-[#F7F2E7]/65 hover:text-white'
+                  }`}
+                >
+                  <Music className="w-3 h-3" aria-hidden="true" />
+                  <span>Rhythm-Only</span>
+                </button>
+                <button
+                  type="button"
+                  data-testid="toggle-auto-btn"
+                  aria-pressed={controlMode === 'auto'}
+                  onClick={() => onSelectControlMode('auto')}
+                  className={`flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    controlMode === 'auto'
+                      ? 'bg-[#1B3A4B] border border-[#38BDF8]/70 text-[#38BDF8]'
+                      : 'text-[#F7F2E7]/65 hover:text-white'
+                  }`}
+                >
+                  <Bot className="w-3 h-3" aria-hidden="true" />
+                  <span>Auto</span>
+                </button>
+              </div>
             </div>
 
             {/* Track List */}
@@ -513,7 +548,11 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
 
       {/* Bottom Safe Margin Single-Line Control Hint */}
       <div className="text-center text-xs text-[#F7F2E7]/65 tracking-wide">
-        Space / Click Jump on Beat · P Pause · M Mute
+        {controlMode === 'rhythm-only'
+          ? 'Auto-Flight Active · Space / Click on Beat · P Pause · M Mute'
+          : controlMode === 'auto'
+            ? 'Full Auto Active · Watch & Enjoy · P Pause · M Mute'
+            : 'Space / Click Jump on Beat · P Pause · M Mute'}
       </div>
     </div>
   );

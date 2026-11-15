@@ -22,8 +22,9 @@ export function shouldCountRunScore(
   playMode: PlayMode,
   hitsTaken: number,
   autoMode: boolean,
+  rhythmOnlyMode = false,
 ): boolean {
-  if (autoMode) return false;
+  if (autoMode || rhythmOnlyMode) return false;
   if (playMode === 'infinite' && hitsTaken > INFINITE_MAX_RANKED_HITS) {
     return false;
   }
@@ -134,4 +135,91 @@ export function computeAccuracyPercent(
   if (total === 0) return 100;
   const weighted = perfectCount * 1.0 + goodCount * 0.65;
   return Math.round((weighted / total) * 100);
+}
+
+export interface RhythmTapEvaluation extends JudgmentResult {
+  beatIndex: number;
+  isDuplicateBeatTap: boolean;
+}
+
+export function evaluateRhythmOnlyTap(
+  songTime: number,
+  bpm: number,
+  firstBeatSec: number,
+  currentCombo: number,
+  lastTappedBeatIndex: number,
+  beatTimes?: number[],
+  difficulty: DifficultyLevel = 'normal',
+): RhythmTapEvaluation {
+  const { beatIndex } = getNearestBeatDeltaSec(songTime, bpm, firstBeatSec, beatTimes);
+  const result = evaluateBeatJump(
+    songTime,
+    bpm,
+    firstBeatSec,
+    currentCombo,
+    beatTimes,
+    difficulty,
+  );
+
+  if (result.tier !== 'OFFBEAT' && beatIndex === lastTappedBeatIndex) {
+    return {
+      ...result,
+      tier: 'OFFBEAT',
+      points: 0,
+      nextCombo: 0,
+      multiplier: 1,
+      beatIndex,
+      isDuplicateBeatTap: true,
+    };
+  }
+
+  return {
+    ...result,
+    beatIndex,
+    isDuplicateBeatTap: false,
+  };
+}
+
+export function findNextMissedBeatIndex(params: {
+  songTime: number;
+  bpm: number;
+  firstBeatSec: number;
+  beatTimes?: number[];
+  difficulty: DifficultyLevel;
+  rhythmStartTime: number;
+  lastTappedBeatIndex: number;
+  lastMissedBeatIndex: number;
+}): number | null {
+  const {
+    songTime,
+    bpm,
+    firstBeatSec,
+    beatTimes,
+    difficulty,
+    rhythmStartTime,
+    lastTappedBeatIndex,
+    lastMissedBeatIndex,
+  } = params;
+  const { goodSec } = getBeatTimingWindows(difficulty);
+  const cutoffTime = songTime - goodSec - 0.015;
+  if (cutoffTime < rhythmStartTime) return null;
+
+  const minCandidateIdx = Math.max(0, lastMissedBeatIndex + 1, lastTappedBeatIndex + 1);
+
+  if (beatTimes && beatTimes.length > 0) {
+    for (let i = minCandidateIdx; i < beatTimes.length; i++) {
+      const bt = beatTimes[i];
+      if (bt > cutoffTime) break;
+      if (bt >= rhythmStartTime) {
+        return i;
+      }
+    }
+    return null;
+  }
+
+  const beatPeriod = 60 / Math.max(40, bpm);
+  const minActiveIdx = Math.ceil((rhythmStartTime - firstBeatSec) / beatPeriod);
+  const maxExpiredIdx = Math.floor((cutoffTime - firstBeatSec) / beatPeriod);
+  const candidate = Math.max(minActiveIdx, minCandidateIdx);
+  return candidate <= maxExpiredIdx ? candidate : null;
 }

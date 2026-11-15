@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   computeAccuracyPercent,
   evaluateBeatJump,
+  evaluateRhythmOnlyTap,
+  findNextMissedBeatIndex,
   getBeatTimingWindows,
   getMultiplierForCombo,
   getNearestBeatDeltaSec,
@@ -82,4 +84,89 @@ test('computeAccuracyPercent calculates weighted rhythm accuracy', () => {
   assert.equal(computeAccuracyPercent(10, 0, 0), 100);
   assert.equal(computeAccuracyPercent(0, 0, 10), 0);
   assert.equal(computeAccuracyPercent(5, 5, 0), 83);
+});
+
+test('shouldCountRunScore excludes Rhythm-Only mode alongside Auto mode', () => {
+  assert.equal(shouldCountRunScore('lives', 0, false, true), false);
+  assert.equal(shouldCountRunScore('infinite', 0, false, true), false);
+  assert.equal(shouldCountRunScore('lives', 0, false, false), true);
+});
+
+test('evaluateRhythmOnlyTap judges beats accurately and prevents double-tapping the same beat', () => {
+  // 120 BPM = 0.5s period, beat 2 at 1.0s
+  const firstTap = evaluateRhythmOnlyTap(1.02, 120, 0, 4, 1, undefined, 'normal');
+  assert.equal(firstTap.tier, 'PERFECT');
+  assert.equal(firstTap.beatIndex, 2);
+  assert.equal(firstTap.isDuplicateBeatTap, false);
+  assert.equal(firstTap.nextCombo, 5);
+  assert.equal(firstTap.points, 200);
+
+  // Tapping again inside beat 2's window should register as duplicate OFFBEAT
+  const doubleTap = evaluateRhythmOnlyTap(1.06, 120, 0, 5, firstTap.beatIndex, undefined, 'normal');
+  assert.equal(doubleTap.tier, 'OFFBEAT');
+  assert.equal(doubleTap.isDuplicateBeatTap, true);
+  assert.equal(doubleTap.nextCombo, 0);
+  assert.equal(doubleTap.points, 0);
+});
+
+test('findNextMissedBeatIndex detects unclicked expired beats after intro grace and skips tapped beats', () => {
+  // 120 BPM (beats every 0.5s starting at 0): beats at 0, 0.5, 1.0, 1.5, 2.0, 2.5
+  // rhythmStartTime = 1.4 -> first active beat is index 3 (t = 1.5s)
+  // normal goodSec = 0.175s, cutoff margin 0.015s -> beat 3 expires after 1.69s
+  assert.equal(
+    findNextMissedBeatIndex({
+      songTime: 1.65,
+      bpm: 120,
+      firstBeatSec: 0,
+      difficulty: 'normal',
+      rhythmStartTime: 1.4,
+      lastTappedBeatIndex: -999,
+      lastMissedBeatIndex: -999,
+    }),
+    null,
+  );
+
+  // At t = 1.72s, beat 3 (1.5s) has expired without a tap
+  assert.equal(
+    findNextMissedBeatIndex({
+      songTime: 1.72,
+      bpm: 120,
+      firstBeatSec: 0,
+      difficulty: 'normal',
+      rhythmStartTime: 1.4,
+      lastTappedBeatIndex: -999,
+      lastMissedBeatIndex: -999,
+    }),
+    3,
+  );
+
+  // If beat 3 was tapped, it is not reported as missed
+  assert.equal(
+    findNextMissedBeatIndex({
+      songTime: 1.72,
+      bpm: 120,
+      firstBeatSec: 0,
+      difficulty: 'normal',
+      rhythmStartTime: 1.4,
+      lastTappedBeatIndex: 3,
+      lastMissedBeatIndex: -999,
+    }),
+    null,
+  );
+
+  // Works with explicit beatTimes array too
+  const beatTimes = [0.2, 0.7, 1.2, 1.7, 2.2];
+  assert.equal(
+    findNextMissedBeatIndex({
+      songTime: 1.95,
+      bpm: 120,
+      firstBeatSec: 0.2,
+      beatTimes,
+      difficulty: 'normal',
+      rhythmStartTime: 1.1,
+      lastTappedBeatIndex: 2,
+      lastMissedBeatIndex: -999,
+    }),
+    3,
+  );
 });

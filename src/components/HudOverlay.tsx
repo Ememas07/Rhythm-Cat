@@ -106,6 +106,15 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 AUTO
               </span>
             )}
+            {!hud.autoMode && hud.rhythmOnlyMode && (
+              <span
+                data-testid="hud-rhythm-only-badge"
+                className="text-xs font-extrabold uppercase tracking-wider text-[#FFB830]"
+                style={{ textShadow: '0 2px 4px rgba(0,0,0,0.85)' }}
+              >
+                RHYTHM-ONLY
+              </span>
+            )}
           </div>
 
           <div

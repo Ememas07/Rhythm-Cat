@@ -23,6 +23,7 @@ function makeStats(overrides: Partial<RunStats> = {}): RunStats {
     scoreCounted: true,
     difficulty: 'normal',
     autoMode: false,
+    rhythmOnlyMode: false,
     accuracyPct: 70,
     victory: false,
     victoryReason: 'defeat',

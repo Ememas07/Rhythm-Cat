@@ -4,6 +4,8 @@ export type PlayMode = 'lives' | 'sudden-death' | 'infinite';
 
 export type DifficultyLevel = 'easy' | 'normal' | 'hard';
 
+export type ControlMode = 'manual' | 'rhythm-only' | 'auto';
+
 export type GameMode = 'arcade' | 'boss';
 
 export type BossId = 'metronome' | 'hairball' | 'maestro';
@@ -189,6 +191,7 @@ export interface RunStats {
   scoreCounted: boolean;
   difficulty: DifficultyLevel;
   autoMode: boolean;
+  rhythmOnlyMode: boolean;
   accuracyPct: number;
   songProgress: number;
   lastJudgment?: JudgmentTier | null;
@@ -214,6 +217,7 @@ export interface HudSnapshot {
   scoreCounted: boolean;
   difficulty: DifficultyLevel;
   autoMode: boolean;
+  rhythmOnlyMode: boolean;
   accuracyPct: number;
   songProgress: number;
   lastJudgment: JudgmentTier | null;

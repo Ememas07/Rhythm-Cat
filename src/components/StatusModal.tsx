@@ -285,9 +285,11 @@ export const StatusModal: React.FC<StatusModalProps> = ({
   const unrankedReason = !stats.scoreCounted
     ? stats.autoMode
       ? 'Auto Mode Run — Score & skin unlocks were not saved.'
-      : stats.infiniteLives && stats.hitsTaken > 3
-        ? `Infinite Mode: ${stats.hitsTaken} hits taken (max 3 allowed) — Score not counted.`
-        : 'Score not counted for this run.'
+      : stats.rhythmOnlyMode
+        ? 'Rhythm-Only Mode — Auto-steered flight (Best Score & unlocks not saved).'
+        : stats.infiniteLives && stats.hitsTaken > 3
+          ? `Infinite Mode: ${stats.hitsTaken} hits taken (max 3 allowed) — Score not counted.`
+          : 'Score not counted for this run.'
     : null;
 
   return (
