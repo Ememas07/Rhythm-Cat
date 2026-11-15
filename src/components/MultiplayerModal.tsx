@@ -35,6 +35,9 @@ interface MultiplayerModalProps {
   busy: boolean;
   audioSyncStatus: 'idle' | 'uploading' | 'downloading' | 'ready' | 'error';
   errorMessage: string | null;
+  isReconnecting?: boolean;
+  reconnectAttempt?: number;
+  latencyMs?: number | null;
   onCreateRoom: () => void;
   onJoinRoom: (code: string) => void;
   onToggleReady: () => void;
@@ -61,6 +64,9 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
   busy,
   audioSyncStatus,
   errorMessage,
+  isReconnecting = false,
+  reconnectAttempt = 0,
+  latencyMs = null,
   onCreateRoom,
   onJoinRoom,
   onToggleReady,
@@ -124,17 +130,22 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
   const canHostStart =
     Boolean(room) &&
     role === 'host' &&
+    !isReconnecting &&
     Boolean(room?.guest?.connected) &&
     Boolean(room?.guest?.ready) &&
     (room?.trackMeta.kind !== 'mp3' || (room.trackMeta.hasAudioAsset && audioSyncStatus !== 'uploading'));
 
-  const hostBlockReason = !room?.guest?.connected
-    ? 'Waiting for opponent to join...'
-    : !room.guest.ready
-      ? 'Waiting for opponent to Ready Up...'
-      : room.trackMeta.kind === 'mp3' && (!room.trackMeta.hasAudioAsset || audioSyncStatus === 'uploading')
-        ? 'Uploading your MP3 to room...'
-        : null;
+  const hostBlockReason = isReconnecting
+    ? 'Reconnecting to server...'
+    : !room?.guest
+      ? 'Waiting for opponent to join...'
+      : !room.guest.connected
+        ? 'Opponent reconnecting...'
+        : !room.guest.ready
+          ? 'Waiting for opponent to Ready Up...'
+          : room.trackMeta.kind === 'mp3' && (!room.trackMeta.hasAudioAsset || audioSyncStatus === 'uploading')
+            ? 'Uploading your MP3 to room...'
+            : null;
 
   return (
     <div
@@ -174,6 +185,19 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
             className="mb-4 px-3.5 py-2.5 rounded-xl bg-[#7F1D1D]/55 border border-[#EF4444]/65 text-xs text-[#FECACA]"
           >
             {errorMessage}
+          </div>
+        )}
+
+        {isReconnecting && (
+          <div
+            role="status"
+            className="mb-4 px-3.5 py-2.5 rounded-xl bg-[#78350F]/70 border border-[#F59E0B]/80 text-xs text-[#FEF3C7] flex items-center gap-2"
+          >
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-[#FBBF24]" />
+            <span>
+              Connection lost. Reconnecting to multiplayer room
+              {reconnectAttempt > 1 ? ` (attempt ${reconnectAttempt})...` : '...'}
+            </span>
           </div>
         )}
 
@@ -281,8 +305,24 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
             {/* Room Code & Share Link Banner */}
             <div className="p-3.5 rounded-xl bg-[#101428] border border-[#2C3560] flex flex-wrap items-center justify-between gap-3">
               <div>
-                <div className="text-[11px] font-semibold text-[#F7F2E7]/60 uppercase tracking-wider">
-                  Room Code
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-semibold text-[#F7F2E7]/60 uppercase tracking-wider">
+                    Room Code
+                  </span>
+                  {latencyMs !== null && latencyMs !== undefined && (
+                    <span
+                      title="WebSocket Round-Trip Latency"
+                      className={`text-[10px] font-mono-num font-bold px-1.5 py-0.5 rounded ${
+                        latencyMs < 120
+                          ? 'bg-[#064E3B]/70 text-[#34D399]'
+                          : latencyMs < 250
+                            ? 'bg-[#78350F]/70 text-[#FBBF24]'
+                            : 'bg-[#7F1D1D]/70 text-[#F87171]'
+                      }`}
+                    >
+                      ● {latencyMs}ms
+                    </span>
+                  )}
                 </div>
                 <div
                   data-testid="room-code-display"
@@ -413,7 +453,14 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
               <div className="p-3 rounded-xl bg-[#11152A] border border-[#29325A]">
                 <div className="flex items-center justify-between gap-2 mb-1">
                   <span className="text-[11px] font-semibold text-[#FFB830] uppercase">Host</span>
-                  <span className="text-[11px] font-semibold text-[#34D399]">Ready</span>
+                  {room.host.connected ? (
+                    <span className="text-[11px] font-semibold text-[#34D399]">Ready</span>
+                  ) : (
+                    <span className="text-[11px] font-semibold text-[#FBBF24] flex items-center gap-1">
+                      <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                      Reconnecting...
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <span
@@ -431,14 +478,21 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
               <div className="p-3 rounded-xl bg-[#11152A] border border-[#29325A]">
                 <div className="flex items-center justify-between gap-2 mb-1">
                   <span className="text-[11px] font-semibold text-[#38BDF8] uppercase">Challenger</span>
-                  {room.guest && room.guest.connected ? (
-                    <span
-                      className={`text-[11px] font-semibold ${
-                        room.guest.ready ? 'text-[#34D399]' : 'text-[#F7F2E7]/60'
-                      }`}
-                    >
-                      {room.guest.ready ? 'Ready' : 'Not Ready'}
-                    </span>
+                  {room.guest ? (
+                    !room.guest.connected ? (
+                      <span className="text-[11px] font-semibold text-[#FBBF24] flex items-center gap-1">
+                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                        Reconnecting...
+                      </span>
+                    ) : (
+                      <span
+                        className={`text-[11px] font-semibold ${
+                          room.guest.ready ? 'text-[#34D399]' : 'text-[#F7F2E7]/60'
+                        }`}
+                      >
+                        {room.guest.ready ? 'Ready' : 'Not Ready'}
+                      </span>
+                    )
                   ) : (
                     <span className="text-[11px] text-[#F7F2E7]/45">Empty</span>
                   )}
@@ -484,7 +538,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
               ) : (
                 <button
                   type="button"
-                  disabled={room.trackMeta.kind === 'mp3' && audioSyncStatus !== 'ready'}
+                  disabled={isReconnecting || (room.trackMeta.kind === 'mp3' && audioSyncStatus !== 'ready')}
                   onClick={onToggleReady}
                   className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-display font-bold text-sm transition-colors whitespace-nowrap cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed ${
                     room.guest?.ready
@@ -494,11 +548,13 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                 >
                   <UserCheck className="w-4 h-4" aria-hidden="true" />
                   <span>
-                    {room.trackMeta.kind === 'mp3' && audioSyncStatus !== 'ready'
-                      ? 'Syncing Host .MP3...'
-                      : room.guest?.ready
-                        ? 'Ready! (Click to Unready)'
-                        : 'Ready Up'}
+                    {isReconnecting
+                      ? 'Reconnecting...'
+                      : room.trackMeta.kind === 'mp3' && audioSyncStatus !== 'ready'
+                        ? 'Syncing Host .MP3...'
+                        : room.guest?.ready
+                          ? 'Ready! (Click to Unready)'
+                          : 'Ready Up'}
                   </span>
                 </button>
               )}

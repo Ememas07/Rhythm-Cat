@@ -65,6 +65,18 @@ export type ClientWsMessage =
       skinId: CatSkinId;
     }
   | {
+      type: 'room:reconnect';
+      code: string;
+      role: PlayerRole;
+      sessionToken: string;
+      playerName: string;
+      skinId: CatSkinId;
+    }
+  | {
+      type: 'room:leave';
+      code: string;
+    }
+  | {
       type: 'room:update-track';
       code: string;
       playMode: PlayMode;
@@ -109,12 +121,24 @@ export type ClientWsMessage =
   | {
       type: 'room:rematch';
       code: string;
+    }
+  | {
+      type: 'ping';
+      timestamp: number;
     };
 
 export type ServerWsMessage =
   | {
       type: 'room:joined';
       role: PlayerRole;
+      sessionToken: string;
+      room: RoomSnapshot;
+      chart: LevelChart | null;
+    }
+  | {
+      type: 'room:reconnected';
+      role: PlayerRole;
+      sessionToken: string;
       room: RoomSnapshot;
       chart: LevelChart | null;
     }
@@ -143,4 +167,8 @@ export type ServerWsMessage =
   | {
       type: 'room:error';
       message: string;
+    }
+  | {
+      type: 'pong';
+      timestamp: number;
     };

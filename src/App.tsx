@@ -141,6 +141,9 @@ export default function App() {
   const [mpAudioSyncStatus, setMpAudioSyncStatus] = useState<
     'idle' | 'uploading' | 'downloading' | 'ready' | 'error'
   >('idle');
+  const [mpReconnecting, setMpReconnecting] = useState(false);
+  const [mpReconnectAttempt, setMpReconnectAttempt] = useState(0);
+  const [mpLatency, setMpLatency] = useState<number | null>(null);
 
   const mpClientRef = useRef<MultiplayerClient | null>(null);
   const mpRoomRef = useRef<RoomSnapshot | null>(null);
@@ -273,6 +276,8 @@ export default function App() {
       onJoined: (role, room) => {
         setMpBusy(false);
         setMpError(null);
+        setMpReconnecting(false);
+        setMpReconnectAttempt(0);
         setMpRole(role);
         setMpRoom(room);
         setMpOpponent(role === 'host' ? room.guest : room.host);
@@ -282,6 +287,25 @@ export default function App() {
         } else {
           void syncGuestAudioIfNeeded(role, room);
         }
+      },
+      onReconnected: (role, room) => {
+        setMpBusy(false);
+        setMpError(null);
+        setMpReconnecting(false);
+        setMpReconnectAttempt(0);
+        setMpRole(role);
+        setMpRoom(room);
+        setMpOpponent(role === 'host' ? room.guest : room.host);
+        if (role === 'guest') {
+          void syncGuestAudioIfNeeded(role, room);
+        }
+      },
+      onReconnecting: (attempt) => {
+        setMpReconnecting(true);
+        setMpReconnectAttempt(attempt);
+      },
+      onLatencyUpdate: (rtt) => {
+        setMpLatency(rtt);
       },
       onRoomState: (room) => {
         const role = mpRoleRef.current;
@@ -375,6 +399,7 @@ export default function App() {
       onError: (message) => {
         setMpBusy(false);
         setMpError(message);
+        setMpReconnecting(false);
       },
       onClose: () => {
         setMpBusy(false);
@@ -751,7 +776,8 @@ export default function App() {
   }, []);
 
   const handleLeaveMultiplayer = useCallback(() => {
-    mpClientRef.current?.disconnect();
+    const code = mpRoomRef.current?.code;
+    mpClientRef.current?.leaveRoom(code);
     mpClientRef.current = null;
     setMpRole(null);
     setMpRoom(null);
@@ -759,6 +785,9 @@ export default function App() {
     setMpCountdown(0);
     setMpBusy(false);
     setMpError(null);
+    setMpReconnecting(false);
+    setMpReconnectAttempt(0);
+    setMpLatency(null);
     setMpAudioSyncStatus('idle');
     setMpModalOpen(false);
     syncedGuestAudioKeyRef.current = null;
@@ -905,6 +934,9 @@ export default function App() {
         busy={mpBusy}
         audioSyncStatus={mpAudioSyncStatus}
         errorMessage={mpError}
+        isReconnecting={mpReconnecting}
+        reconnectAttempt={mpReconnectAttempt}
+        latencyMs={mpLatency}
         onCreateRoom={() => void handleCreateRoom()}
         onJoinRoom={(code) => void handleJoinRoom(code)}
         onToggleReady={() => void handleToggleReady()}
@@ -943,6 +975,7 @@ export default function App() {
           onPause={handlePause}
           onRestart={startCurrentSession}
           multiplayerOpponent={mpRoom ? mpOpponent : null}
+          isMultiplayerReconnecting={mpReconnecting}
           onLeaveMultiplayer={handleLeaveMultiplayer}
         />
       )}

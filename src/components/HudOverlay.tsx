@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, LogOut, Pause, RotateCcw, Volume2, VolumeX } from 'lucide-react';
+import { Home, Loader2, LogOut, Pause, RotateCcw, Volume2, VolumeX } from 'lucide-react';
 import type { RoomPlayerState } from '../game/multiplayerTypes';
 import type { HudSnapshot } from '../game/types';
 
@@ -10,6 +10,7 @@ interface HudOverlayProps {
   onPause: () => void;
   onRestart: () => void;
   multiplayerOpponent?: RoomPlayerState | null;
+  isMultiplayerReconnecting?: boolean;
   onLeaveMultiplayer?: () => void;
 }
 
@@ -20,6 +21,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   onPause,
   onRestart,
   multiplayerOpponent = null,
+  isMultiplayerReconnecting = false,
   onLeaveMultiplayer,
 }) => {
   const bossPct = hud.bossMaxHp > 0 ? Math.max(0, Math.min(100, (hud.bossHp / hud.bossMaxHp) * 100)) : 0;
@@ -190,14 +192,30 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             </div>
             <span className="text-xs font-extrabold text-[#F7F2E7]/45">VS</span>
             <div className="text-left">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-[#38BDF8] truncate max-w-[110px]">
-                {multiplayerOpponent.name}
-                {!multiplayerOpponent.alive ? ' (KO)' : ''}
+              <div className="text-[10px] font-bold uppercase tracking-wider text-[#38BDF8] truncate max-w-[140px] flex items-center gap-1">
+                <span>{multiplayerOpponent.name}</span>
+                {!multiplayerOpponent.connected ? (
+                  <span className="text-[#FBBF24] font-semibold text-[9px] lowercase">
+                    (reconnecting)
+                  </span>
+                ) : !multiplayerOpponent.alive ? (
+                  <span className="text-[#FB7185]">(KO)</span>
+                ) : null}
               </div>
               <div className="font-mono-num text-sm font-extrabold text-[#F7F2E7]">
                 {multiplayerOpponent.score.toLocaleString()}
               </div>
             </div>
+          </div>
+        )}
+
+        {isMultiplayerReconnecting && (
+          <div
+            role="status"
+            className="fixed top-3 left-1/2 -translate-x-1/2 z-50 pointer-events-auto flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#78350F]/95 border border-[#F59E0B] text-xs font-semibold text-[#FEF3C7] shadow-xl"
+          >
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-[#FBBF24]" />
+            <span>Connection lost. Reconnecting to match...</span>
           </div>
         )}
 

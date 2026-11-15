@@ -11,9 +11,18 @@ export interface ServerRoomRecord {
   snapshot: RoomSnapshot;
   chart: LevelChart;
   createdAtMs: number;
+  hostSessionToken: string;
+  guestSessionToken: string | null;
 }
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+export function generateSessionToken(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `tok_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
+}
 
 export function generateRoomCode(existingCodes: Set<string>): string {
   for (let attempt = 0; attempt < 40; attempt++) {
@@ -67,7 +76,9 @@ export function createRoomRecord(params: {
   playMode: PlayMode;
   trackMeta: MultiplayerTrackMeta;
   chart: LevelChart;
+  sessionToken?: string;
 }): ServerRoomRecord {
+  const hostSessionToken = params.sessionToken || generateSessionToken();
   return {
     snapshot: {
       code: params.code,
@@ -82,6 +93,8 @@ export function createRoomRecord(params: {
     },
     chart: params.chart,
     createdAtMs: Date.now(),
+    hostSessionToken,
+    guestSessionToken: null,
   };
 }
 
@@ -89,20 +102,49 @@ export function joinRoomRecord(
   record: ServerRoomRecord,
   guestName: string,
   guestSkinId: CatSkinId,
-): { ok: true } | { ok: false; error: string } {
+  sessionToken?: string,
+): { ok: true; sessionToken: string } | { ok: false; error: string } {
   if (record.snapshot.status === 'playing' || record.snapshot.status === 'countdown') {
     return { ok: false, error: 'Match is already in progress.' };
   }
   if (record.snapshot.guest && record.snapshot.guest.connected) {
     return { ok: false, error: 'Room already has 2 players.' };
   }
+  const token = sessionToken || generateSessionToken();
+  record.guestSessionToken = token;
   record.snapshot.guest = createInitialPlayerState(
     'guest',
     guestName,
     guestSkinId,
     record.snapshot.playMode,
   );
+  return { ok: true, sessionToken: token };
+}
+
+export function reconnectRoomRecord(
+  record: ServerRoomRecord,
+  role: PlayerRole,
+  sessionToken: string,
+  playerName?: string,
+  skinId?: CatSkinId,
+): { ok: true } | { ok: false; error: string } {
+  const expectedToken = role === 'host' ? record.hostSessionToken : record.guestSessionToken;
+  if (!expectedToken || expectedToken !== sessionToken) {
+    return { ok: false, error: 'Invalid or expired session token.' };
+  }
+  const player = role === 'host' ? record.snapshot.host : record.snapshot.guest;
+  if (!player) {
+    return { ok: false, error: 'Player slot not found in room.' };
+  }
+  player.connected = true;
+  if (playerName) player.name = sanitizePlayerName(playerName, player.name);
+  if (skinId) player.skinId = skinId;
   return { ok: true };
+}
+
+export function removeGuestFromRoom(record: ServerRoomRecord): void {
+  record.snapshot.guest = null;
+  record.guestSessionToken = null;
 }
 
 export function updateRoomTrackAndMode(

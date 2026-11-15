@@ -4,8 +4,11 @@ import {
   canStartRoomMatch,
   createRoomRecord,
   generateRoomCode,
+  generateSessionToken,
   joinRoomRecord,
   markPlayerFinishedInRoom,
+  reconnectRoomRecord,
+  removeGuestFromRoom,
   resetPlayersForMatchStart,
   resetRoomToLobby,
   resolveMatchWinner,
@@ -138,4 +141,68 @@ test('getMultiplayerWsUrl and getMultiplayerHttpBase map external backend URLs c
     'https://rhythm-cat-server.onrender.com',
   );
   assert.equal(getMultiplayerHttpBase(''), '');
+});
+
+test('session tokens and reconnectRoomRecord allow stable seamless reconnection after socket drop', () => {
+  const tok = generateSessionToken();
+  assert.ok(tok && tok.length >= 8);
+
+  const record = createRoomRecord({
+    code: 'RECON1',
+    hostName: 'LoafHost',
+    hostSkinId: 'marmalade',
+    playMode: 'lives',
+    trackMeta: {
+      kind: 'synth',
+      trackId: 'midnight-loaf',
+      title: 'Midnight Loaf',
+      subtitle: 'Chill',
+      bpm: 96,
+      durationSec: 46,
+      accentColor: '#FFB830',
+      hasAudioAsset: false,
+    },
+    chart: SAMPLE_CHART,
+  });
+
+  const hostToken = record.hostSessionToken;
+  assert.ok(hostToken);
+
+  // Join guest
+  const joinRes = joinRoomRecord(record, 'GuestRival', 'tuxedo');
+  assert.equal(joinRes.ok, true);
+  const guestToken = (joinRes as { ok: true; sessionToken: string }).sessionToken;
+  assert.ok(guestToken);
+  assert.notEqual(hostToken, guestToken);
+
+  // Simulate temporary connection drop: host and guest marked disconnected
+  record.snapshot.host.connected = false;
+  record.snapshot.guest!.connected = false;
+
+  // Reconnect with invalid token fails
+  const badTokenRes = reconnectRoomRecord(record, 'host', 'wrong-token-123');
+  assert.equal(badTokenRes.ok, false);
+  assert.equal(record.snapshot.host.connected, false);
+
+  // Reconnect with valid token succeeds and restores connected state
+  const goodHostRes = reconnectRoomRecord(record, 'host', hostToken, 'LoafHostRenamed');
+  assert.equal(goodHostRes.ok, true);
+  assert.equal(record.snapshot.host.connected, true);
+  assert.equal(record.snapshot.host.name, 'LoafHostRenamed');
+
+  // Reconnect guest succeeds
+  const goodGuestRes = reconnectRoomRecord(record, 'guest', guestToken);
+  assert.equal(goodGuestRes.ok, true);
+  assert.equal(record.snapshot.guest!.connected, true);
+
+  // Guest clean leave in lobby clears slot
+  removeGuestFromRoom(record);
+  assert.equal(record.snapshot.guest, null);
+  assert.equal(record.guestSessionToken, null);
+
+  // New guest can join clean room slot
+  const newGuestRes = joinRoomRecord(record, 'SecondGuest', 'calico');
+  assert.equal(newGuestRes.ok, true);
+  const nextGuest = record.snapshot.guest as unknown as { name: string } | null;
+  assert.equal(nextGuest?.name, 'SecondGuest');
 });
